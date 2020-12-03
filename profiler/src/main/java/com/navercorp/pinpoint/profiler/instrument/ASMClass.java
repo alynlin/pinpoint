@@ -15,7 +15,6 @@
  */
 package com.navercorp.pinpoint.profiler.instrument;
 
-import com.navercorp.pinpoint.bootstrap.context.TraceContext;
 import com.navercorp.pinpoint.bootstrap.instrument.ClassFilter;
 import com.navercorp.pinpoint.bootstrap.instrument.InstrumentClass;
 import com.navercorp.pinpoint.bootstrap.instrument.InstrumentContext;
@@ -24,6 +23,7 @@ import com.navercorp.pinpoint.bootstrap.instrument.InstrumentMethod;
 import com.navercorp.pinpoint.bootstrap.instrument.MethodFilter;
 import com.navercorp.pinpoint.bootstrap.instrument.MethodFilters;
 import com.navercorp.pinpoint.bootstrap.instrument.NotFoundInstrumentException;
+import com.navercorp.pinpoint.bootstrap.interceptor.Interceptor;
 import com.navercorp.pinpoint.bootstrap.interceptor.annotation.TargetConstructor;
 import com.navercorp.pinpoint.bootstrap.interceptor.annotation.TargetConstructors;
 import com.navercorp.pinpoint.bootstrap.interceptor.annotation.TargetFilter;
@@ -32,17 +32,21 @@ import com.navercorp.pinpoint.bootstrap.interceptor.annotation.TargetMethods;
 import com.navercorp.pinpoint.bootstrap.interceptor.scope.ExecutionPolicy;
 import com.navercorp.pinpoint.bootstrap.interceptor.scope.InterceptorScope;
 import com.navercorp.pinpoint.bootstrap.plugin.ObjectFactory;
-import com.navercorp.pinpoint.common.util.Asserts;
+import com.navercorp.pinpoint.common.util.Assert;
+import com.navercorp.pinpoint.common.util.JvmUtils;
+import com.navercorp.pinpoint.common.util.JvmVersion;
 import com.navercorp.pinpoint.exception.PinpointException;
-import com.navercorp.pinpoint.profiler.interceptor.registry.InterceptorRegistryBinder;
 import com.navercorp.pinpoint.profiler.objectfactory.AutoBindingObjectFactory;
 import com.navercorp.pinpoint.profiler.objectfactory.InterceptorArgumentProvider;
+import com.navercorp.pinpoint.profiler.objectfactory.ObjectBinderFactory;
 import com.navercorp.pinpoint.profiler.util.JavaAssistUtils;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.ClassNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.security.ProtectionDomain;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -54,31 +58,39 @@ public class ASMClass implements InstrumentClass {
     private static final String FIELD_PREFIX = "_$PINPOINT$_";
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
+
+    private final EngineComponent engineComponent;
+
     private final InstrumentContext pluginContext;
-    private final InterceptorRegistryBinder interceptorRegistryBinder;
-    private final ClassLoader classLoader;
 
     private final ASMClassNodeAdapter classNode;
     private boolean modified = false;
+    private String name;
 
-    public ASMClass(final InstrumentContext pluginContext, final InterceptorRegistryBinder interceptorRegistryBinder, final ClassLoader classLoader, final ClassNode classNode) {
-        this(pluginContext, interceptorRegistryBinder, classLoader, new ASMClassNodeAdapter(pluginContext, classLoader, classNode));
+    public ASMClass(EngineComponent engineComponent, final InstrumentContext pluginContext, final ClassLoader classLoader, ProtectionDomain protectionDomain, final ClassNode classNode) {
+        this(engineComponent, pluginContext, new ASMClassNodeAdapter(pluginContext, classLoader, protectionDomain, classNode));
     }
 
-    public ASMClass(final InstrumentContext pluginContext, final InterceptorRegistryBinder interceptorRegistryBinder, final ClassLoader classLoader, final ASMClassNodeAdapter classNode) {
+    public ASMClass(EngineComponent engineComponent, final InstrumentContext pluginContext, final ASMClassNodeAdapter classNode) {
+        this.engineComponent = Assert.requireNonNull(engineComponent, "engineComponent");
         this.pluginContext = pluginContext;
-        this.interceptorRegistryBinder = interceptorRegistryBinder;
-        this.classLoader = classLoader;
-        this.classNode = classNode;
+        this.classNode = Assert.requireNonNull(classNode, "classNode");
     }
 
     public ClassLoader getClassLoader() {
-        return this.classLoader;
+        return this.classNode.getClassLoader();
     }
 
     @Override
     public boolean isInterceptable() {
-        return !isInterface() && !isAnnotation() && !isModified();
+        if (isAnnotation() || isModified()) {
+            return false;
+        }
+        // interface static method or default method is java 1.8 or later
+        if (isInterface() && (this.classNode.getMajorVersion() < 52 || !JvmUtils.getVersion().onOrAfter(JvmVersion.JAVA_8))) {
+            return false;
+        }
+        return true;
     }
 
     @Override
@@ -92,28 +104,34 @@ public class ASMClass implements InstrumentClass {
 
     @Override
     public String getName() {
-        return this.classNode.getInternalName();
+        // for performance.
+        if (this.name == null) {
+            this.name = classNode.getName();
+        }
+        return this.name;
     }
 
     @Override
     public String getSuperClass() {
-        return this.classNode.getSuperClassInternalName();
+        return this.classNode.getSuperClassName();
     }
 
     @Override
     public String[] getInterfaces() {
-        return this.classNode.getInterfaceInternalNames();
+        return this.classNode.getInterfaceNames();
     }
 
     @Override
-    public InstrumentMethod getDeclaredMethod(final String name, final String... parameterTypes) {
+    public InstrumentMethod getDeclaredMethod(final String methodName, final String... parameterTypes) {
+        Assert.requireNonNull(methodName, "name");
+
         final String desc = JavaAssistUtils.javaTypeToJvmSignature(parameterTypes);
-        final ASMMethodNodeAdapter methodNode = this.classNode.getDeclaredMethod(name, desc);
+        final ASMMethodNodeAdapter methodNode = this.classNode.getDeclaredMethod(methodName, desc);
         if (methodNode == null) {
             return null;
         }
 
-        return new ASMMethod(this.pluginContext, this.interceptorRegistryBinder, this, methodNode);
+        return new ASMMethod(this.engineComponent, this.pluginContext, this, methodNode);
     }
 
     @Override
@@ -123,13 +141,11 @@ public class ASMClass implements InstrumentClass {
 
     @Override
     public List<InstrumentMethod> getDeclaredMethods(final MethodFilter methodFilter) {
-        if (methodFilter == null) {
-            throw new NullPointerException("methodFilter must not be null");
-        }
+        Assert.requireNonNull(methodFilter, "methodFilter");
 
         final List<InstrumentMethod> candidateList = new ArrayList<InstrumentMethod>();
         for (ASMMethodNodeAdapter methodNode : this.classNode.getDeclaredMethods()) {
-            final InstrumentMethod method = new ASMMethod(this.pluginContext, this.interceptorRegistryBinder, this, methodNode);
+            final InstrumentMethod method = new ASMMethod(this.engineComponent, this.pluginContext, this, methodNode);
             if (methodFilter.accept(method)) {
                 candidateList.add(method);
             }
@@ -144,19 +160,35 @@ public class ASMClass implements InstrumentClass {
     }
 
     @Override
+    public List<InstrumentMethod> getDeclaredConstructors() {
+        final List<InstrumentMethod> candidateList = new ArrayList<InstrumentMethod>();
+        for (ASMMethodNodeAdapter methodNode : this.classNode.getDeclaredConstructors()) {
+            final InstrumentMethod method = new ASMMethod(this.engineComponent, this.pluginContext, this, methodNode);
+            candidateList.add(method);
+        }
+        return candidateList;
+    }
+
+    @Override
     public boolean hasDeclaredMethod(final String methodName, final String... parameterTypes) {
+        Assert.requireNonNull(methodName, "methodName");
+
         final String desc = JavaAssistUtils.javaTypeToJvmSignature(parameterTypes);
         return this.classNode.hasDeclaredMethod(methodName, desc);
     }
 
     @Override
     public boolean hasMethod(final String methodName, final String... parameterTypes) {
+        Assert.requireNonNull(methodName, "methodName");
+
         final String desc = JavaAssistUtils.javaTypeToJvmSignature(parameterTypes);
         return this.classNode.hasMethod(methodName, desc);
     }
 
     @Override
     public boolean hasEnclosingMethod(final String methodName, final String... parameterTypes) {
+        Assert.requireNonNull(methodName, "methodName");
+
         final String desc = JavaAssistUtils.javaTypeToJvmSignature(parameterTypes);
         return this.classNode.hasOutClass(methodName, desc);
     }
@@ -167,9 +199,11 @@ public class ASMClass implements InstrumentClass {
     }
 
     @Override
-    public boolean hasField(String name, String type) {
+    public boolean hasField(String fieldName, String type) {
+        Assert.requireNonNull(fieldName, "name");
+
         final String desc = type == null ? null : JavaAssistUtils.toJvmSignature(type);
-        return this.classNode.getField(name, desc) != null;
+        return this.classNode.getField(fieldName, desc) != null;
     }
 
     @Override
@@ -178,14 +212,15 @@ public class ASMClass implements InstrumentClass {
     }
 
     @Override
-    public void weave(final String adviceClassInternalName) throws InstrumentException {
-        if (adviceClassInternalName == null) {
-            throw new NotFoundInstrumentException("advice class internal name must not be null");
-        }
+    public void weave(final String adviceClassName) throws InstrumentException {
+        Assert.requireNonNull(adviceClassName, "adviceClassName");
 
-        final ASMClassNodeAdapter adviceClassNode = ASMClassNodeAdapter.get(this.pluginContext, this.classLoader, JavaAssistUtils.javaNameToJvmName(adviceClassInternalName));
+        final String classInternalName = JavaAssistUtils.javaNameToJvmName(adviceClassName);
+        final ClassLoader classLoader = classNode.getClassLoader();
+        final ProtectionDomain protectionDomain = classNode.getProtectionDomain();
+        final ASMClassNodeAdapter adviceClassNode = ASMClassNodeAdapter.get(this.pluginContext, classLoader, protectionDomain, classInternalName);
         if (adviceClassNode == null) {
-            throw new NotFoundInstrumentException(adviceClassInternalName + " not found.");
+            throw new NotFoundInstrumentException(adviceClassName + " not found.");
         }
 
         final ASMAspectWeaver aspectWeaver = new ASMAspectWeaver();
@@ -195,14 +230,16 @@ public class ASMClass implements InstrumentClass {
 
     @Override
     public InstrumentMethod addDelegatorMethod(final String methodName, final String... paramTypes) throws InstrumentException {
+        Assert.requireNonNull(methodName, "methodName");
+
         // check duplicated method.
         if (getDeclaredMethod(methodName, paramTypes) != null) {
             throw new InstrumentException(getName() + " already have method(" + methodName + ").");
         }
 
-        final ASMClassNodeAdapter superClassNode = ASMClassNodeAdapter.get(this.pluginContext, this.classLoader, this.classNode.getSuperClassName());
+        final ASMClassNodeAdapter superClassNode = ASMClassNodeAdapter.get(this.pluginContext, classNode.getClassLoader(), classNode.getProtectionDomain(), this.classNode.getSuperClassInternalName());
         if (superClassNode == null) {
-            throw new NotFoundInstrumentException(getName() + " not found super class(" + this.classNode.getSuperClassName() + ")");
+            throw new NotFoundInstrumentException(getName() + " not found super class(" + this.classNode.getSuperClassInternalName() + ")");
         }
 
         final String desc = JavaAssistUtils.javaTypeToJvmSignature(paramTypes);
@@ -213,31 +250,37 @@ public class ASMClass implements InstrumentClass {
 
         final ASMMethodNodeAdapter methodNode = this.classNode.addDelegatorMethod(superMethodNode);
         setModified(true);
-        return new ASMMethod(this.pluginContext, this.interceptorRegistryBinder, this, methodNode);
+        return new ASMMethod(this.engineComponent, this.pluginContext, this, methodNode);
     }
 
     @Override
-    public void addField(final String accessorTypeName) throws InstrumentException {
+    public void addField(Class<?> accessorClass) throws InstrumentException {
+        Assert.requireNonNull(accessorClass, "accessorClass");
         try {
-            final Class<?> accessorType = this.pluginContext.injectClass(this.classLoader, accessorTypeName);
-            final AccessorAnalyzer accessorAnalyzer = new AccessorAnalyzer();
-            final AccessorAnalyzer.AccessorDetails accessorDetails = accessorAnalyzer.analyze(accessorType);
 
-            final ASMFieldNodeAdapter fieldNode = this.classNode.addField(FIELD_PREFIX + JavaAssistUtils.javaClassNameToVariableName(accessorTypeName), accessorDetails.getFieldType());
+            final AccessorAnalyzer accessorAnalyzer = new AccessorAnalyzer();
+            final AccessorAnalyzer.AccessorDetails accessorDetails = accessorAnalyzer.analyze(accessorClass);
+
+            final Type type = Type.getType(accessorDetails.getFieldType());
+            final String accessorTypeName = accessorClass.getName();
+            final String fieldName = FIELD_PREFIX + JavaAssistUtils.javaClassNameToVariableName(accessorTypeName);
+            final ASMFieldNodeAdapter fieldNode = this.classNode.addField(fieldName, type.getDescriptor());
             this.classNode.addInterface(accessorTypeName);
             this.classNode.addGetterMethod(accessorDetails.getGetter().getName(), fieldNode);
             this.classNode.addSetterMethod(accessorDetails.getSetter().getName(), fieldNode);
             setModified(true);
         } catch (Exception e) {
-            throw new InstrumentException("Failed to add field with accessor [" + accessorTypeName + "]. Cause:" + e.getMessage(), e);
+            throw new InstrumentException("Failed to add field with accessor [" + accessorClass.getName() + "]. Cause:" + e.getMessage(), e);
         }
     }
 
     @Override
-    public void addGetter(final String getterTypeName, final String fieldName) throws InstrumentException {
+    public void addGetter(Class<?> getterClass, String fieldName) throws InstrumentException {
+        Assert.requireNonNull(getterClass, "getterClass");
+        Assert.requireNonNull(fieldName, "fieldName");
+
         try {
-            final Class<?> getterType = this.pluginContext.injectClass(this.classLoader, getterTypeName);
-            final GetterAnalyzer.GetterDetails getterDetails = new GetterAnalyzer().analyze(getterType);
+            final GetterAnalyzer.GetterDetails getterDetails = new GetterAnalyzer().analyze(getterClass);
             final ASMFieldNodeAdapter fieldNode = this.classNode.getField(fieldName, null);
             if (fieldNode == null) {
                 throw new IllegalArgumentException("Not found field. name=" + fieldName);
@@ -249,23 +292,23 @@ public class ASMClass implements InstrumentClass {
             }
 
             this.classNode.addGetterMethod(getterDetails.getGetter().getName(), fieldNode);
-            this.classNode.addInterface(getterTypeName);
+            this.classNode.addInterface(getterClass.getName());
             setModified(true);
         } catch (Exception e) {
-            throw new InstrumentException("Failed to add getter: " + getterTypeName, e);
+            throw new InstrumentException("Failed to add getter: " + getterClass.getName(), e);
         }
     }
 
     @Override
-    public void addSetter(String setterTypeName, String fieldName) throws InstrumentException {
-        this.addSetter(setterTypeName, fieldName, false);
+    public void addSetter(Class<?> setterClass, String fieldName) throws InstrumentException {
+        this.addSetter(setterClass, fieldName, false);
     }
 
     @Override
-    public void addSetter(String setterTypeName, String fieldName, boolean removeFinal) throws InstrumentException {
+    public void addSetter(Class<?> setterClass, String fieldName, boolean removeFinal) throws InstrumentException {
+        Assert.requireNonNull(setterClass, "setterClass");
         try {
-            final Class<?> setterType = this.pluginContext.injectClass(this.classLoader, setterTypeName);
-            final SetterAnalyzer.SetterDetails setterDetails = new SetterAnalyzer().analyze(setterType);
+            final SetterAnalyzer.SetterDetails setterDetails = new SetterAnalyzer().analyze(setterClass);
             final ASMFieldNodeAdapter fieldNode = this.classNode.getField(fieldName, null);
             if (fieldNode == null) {
                 throw new IllegalArgumentException("Not found field. name=" + fieldName);
@@ -294,7 +337,7 @@ public class ASMClass implements InstrumentClass {
 
             try {
                 this.classNode.addSetterMethod(setterDetails.getSetter().getName(), fieldNode);
-                this.classNode.addInterface(setterTypeName);
+                this.classNode.addInterface(setterClass.getName());
                 setModified(true);
             } catch (Exception e) {
                 if (finalRemoved) {
@@ -303,159 +346,87 @@ public class ASMClass implements InstrumentClass {
                 throw e;
             }
         } catch (Exception e) {
-            throw new InstrumentException("Failed to add setter: " + setterTypeName, e);
+            throw new InstrumentException("Failed to add setter: " + setterClass.getName(), e);
         }
     }
 
-    @Override
-    public int addInterceptor(String interceptorClassName) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        return addInterceptor0(interceptorClassName, null, null, null);
-    }
-
-    @Override
-    public int addInterceptor(String interceptorClassName, Object[] constructorArgs) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(constructorArgs, "constructorArgs");
-        return addInterceptor0(interceptorClassName, constructorArgs, null, null);
-    }
-
-    @Override
-    public int addScopedInterceptor(String interceptorClassName, String scopeName) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(scopeName, "scopeName");
-        final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
-        return addInterceptor0(interceptorClassName, null, interceptorScope, ExecutionPolicy.BOUNDARY);
-    }
-
-    @Override
-    public int addScopedInterceptor(String interceptorClassName, InterceptorScope scope) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(scope, "scope");
-        return addInterceptor0(interceptorClassName, null, scope, ExecutionPolicy.BOUNDARY);
-    }
-
-    @Override
-    public int addScopedInterceptor(String interceptorClassName, Object[] constructorArgs, String scopeName) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(constructorArgs, "constructorArgs");
-        Asserts.notNull(scopeName, "scopeName");
-        final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
-        return addInterceptor0(interceptorClassName, constructorArgs, interceptorScope, ExecutionPolicy.BOUNDARY);
-    }
-
-    @Override
-    public int addScopedInterceptor(String interceptorClassName, Object[] constructorArgs, InterceptorScope scope) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(constructorArgs, "constructorArgs");
-        Asserts.notNull(scope, "scope");
-        return addInterceptor0(interceptorClassName, constructorArgs, scope, ExecutionPolicy.BOUNDARY);
-    }
-
-    @Override
-    public int addScopedInterceptor(String interceptorClassName, String scopeName, ExecutionPolicy executionPolicy) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(scopeName, "scopeName");
-        Asserts.notNull(executionPolicy, "executionPolicy");
-        final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
-        return addInterceptor0(interceptorClassName, null, interceptorScope, executionPolicy);
-    }
-
-    @Override
-    public int addScopedInterceptor(String interceptorClassName, InterceptorScope scope, ExecutionPolicy executionPolicy) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(scope, "scope");
-        Asserts.notNull(executionPolicy, "executionPolicy");
-        return addInterceptor0(interceptorClassName, null, scope, executionPolicy);
-    }
-
-    @Override
-    public int addScopedInterceptor(String interceptorClassName, Object[] constructorArgs, String scopeName, ExecutionPolicy executionPolicy) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(constructorArgs, "constructorArgs");
-        Asserts.notNull(scopeName, "scopeName");
-        Asserts.notNull(executionPolicy, "executionPolicy");
-        final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
-        return addInterceptor0(interceptorClassName, constructorArgs, interceptorScope, executionPolicy);
+    private Class<? extends Interceptor> loadInterceptorClass(String interceptorClassName) throws InstrumentException {
+        try {
+            final ClassLoader classLoader = classNode.getClassLoader();
+            return this.pluginContext.injectClass(classLoader, interceptorClassName);
+        } catch (Exception ex) {
+            throw new InstrumentException(interceptorClassName + " not found Caused by:" + ex.getMessage(), ex);
+        }
     }
 
 
-    @Override
-    public int addScopedInterceptor(String interceptorClassName, Object[] constructorArgs, InterceptorScope scope, ExecutionPolicy executionPolicy) throws InstrumentException {
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(constructorArgs, "constructorArgs");
-        Asserts.notNull(scope, "scope");
-        Asserts.notNull(executionPolicy, "executionPolicy");
-        return addInterceptor0(interceptorClassName, constructorArgs, scope, executionPolicy);
-    }
 
-    private int addInterceptor0(String interceptorClassName, Object[] constructorArgs, InterceptorScope scope, ExecutionPolicy executionPolicy) throws InstrumentException {
+    private int addInterceptor0(Class<? extends Interceptor> interceptorClass, Object[] constructorArgs, InterceptorScope scope, ExecutionPolicy executionPolicy) throws InstrumentException {
         int interceptorId = -1;
-        final Class<?> interceptorType = this.pluginContext.injectClass(this.classLoader, interceptorClassName);
 
-        final TargetMethods targetMethods = interceptorType.getAnnotation(TargetMethods.class);
+        final TargetMethods targetMethods = interceptorClass.getAnnotation(TargetMethods.class);
         if (targetMethods != null) {
             for (TargetMethod m : targetMethods.value()) {
-                interceptorId = addInterceptor0(m, interceptorClassName, constructorArgs, scope, executionPolicy);
+                interceptorId = addInterceptor0(m, interceptorClass, constructorArgs, scope, executionPolicy);
             }
         }
 
-        final TargetMethod targetMethod = interceptorType.getAnnotation(TargetMethod.class);
+        final TargetMethod targetMethod = interceptorClass.getAnnotation(TargetMethod.class);
         if (targetMethod != null) {
-            interceptorId = addInterceptor0(targetMethod, interceptorClassName, constructorArgs, scope, executionPolicy);
+            interceptorId = addInterceptor0(targetMethod, interceptorClass, constructorArgs, scope, executionPolicy);
         }
 
-        final TargetConstructors targetConstructors = interceptorType.getAnnotation(TargetConstructors.class);
+        final TargetConstructors targetConstructors = interceptorClass.getAnnotation(TargetConstructors.class);
         if (targetConstructors != null) {
             for (TargetConstructor c : targetConstructors.value()) {
-                interceptorId = addInterceptor0(c, interceptorClassName, scope, executionPolicy, constructorArgs);
+                interceptorId = addInterceptor0(c, interceptorClass, scope, executionPolicy, constructorArgs);
             }
         }
 
-        final TargetConstructor targetConstructor = interceptorType.getAnnotation(TargetConstructor.class);
+        final TargetConstructor targetConstructor = interceptorClass.getAnnotation(TargetConstructor.class);
         if (targetConstructor != null) {
-            interceptorId = addInterceptor0(targetConstructor, interceptorClassName, scope, executionPolicy, constructorArgs);
+            interceptorId = addInterceptor0(targetConstructor, interceptorClass, scope, executionPolicy, constructorArgs);
         }
 
-        final TargetFilter targetFilter = interceptorType.getAnnotation(TargetFilter.class);
+        final TargetFilter targetFilter = interceptorClass.getAnnotation(TargetFilter.class);
         if (targetFilter != null) {
-            interceptorId = addInterceptor0(targetFilter, interceptorClassName, scope, executionPolicy, constructorArgs);
+            interceptorId = addInterceptor0(targetFilter, interceptorClass, scope, executionPolicy, constructorArgs);
         }
 
         if (interceptorId == -1) {
-            throw new PinpointException("No target is specified. At least one of @Targets, @TargetMethod, @TargetConstructor, @TargetFilter must present. interceptor: " + interceptorClassName);
+            throw new PinpointException("No target is specified. At least one of @Targets, @TargetMethod, @TargetConstructor, @TargetFilter must present. interceptor: " + interceptorClass.getName());
         }
 
         return interceptorId;
     }
 
-    private int addInterceptor0(TargetConstructor c, String interceptorClassName, InterceptorScope scope, ExecutionPolicy executionPolicy, Object... constructorArgs) throws InstrumentException {
+    private int addInterceptor0(TargetConstructor c, Class<? extends Interceptor> interceptorClass, InterceptorScope scope, ExecutionPolicy executionPolicy, Object... constructorArgs) throws InstrumentException {
         final InstrumentMethod constructor = getConstructor(c.value());
 
         if (constructor == null) {
             throw new NotFoundInstrumentException("Cannot find constructor with parameter types: " + Arrays.toString(c.value()));
         }
         // TODO casting fix
-        return ((ASMMethod) constructor).addInterceptorInternal(interceptorClassName, constructorArgs, scope, executionPolicy);
+        return ((ASMMethod) constructor).addInterceptorInternal(interceptorClass, constructorArgs, scope, executionPolicy);
     }
 
-    private int addInterceptor0(TargetMethod m, String interceptorClassName, Object[] constructorArgs, InterceptorScope scope, ExecutionPolicy executionPolicy) throws InstrumentException {
+    private int addInterceptor0(TargetMethod m, Class<? extends Interceptor> interceptorClass, Object[] constructorArgs, InterceptorScope scope, ExecutionPolicy executionPolicy) throws InstrumentException {
         InstrumentMethod method = getDeclaredMethod(m.name(), m.paramTypes());
 
         if (method == null) {
             throw new NotFoundInstrumentException("Cannot find method " + m.name() + " with parameter types: " + Arrays.toString(m.paramTypes()));
         }
         // TODO casting fix
-        return ((ASMMethod) method).addInterceptorInternal(interceptorClassName, constructorArgs, scope, executionPolicy);
+        return ((ASMMethod) method).addInterceptorInternal(interceptorClass, constructorArgs, scope, executionPolicy);
     }
 
-    private int addInterceptor0(TargetFilter annotation, String interceptorClassName, InterceptorScope scope, ExecutionPolicy executionPolicy, Object[] constructorArgs) throws InstrumentException {
+    private int addInterceptor0(TargetFilter annotation, Class<? extends Interceptor> interceptorClass, InterceptorScope scope, ExecutionPolicy executionPolicy, Object[] constructorArgs) throws InstrumentException {
         final String filterTypeName = annotation.type();
-        Asserts.notNull(filterTypeName, "type of @TargetFilter");
+        Assert.requireNonNull(filterTypeName, "type of @TargetFilter");
 
-        final TraceContext traceContext = this.pluginContext.getTraceContext();
-        final InterceptorArgumentProvider interceptorArgumentProvider = new InterceptorArgumentProvider(traceContext, this);
-        final AutoBindingObjectFactory filterFactory = new AutoBindingObjectFactory(this.pluginContext, this.classLoader, interceptorArgumentProvider);
+        ObjectBinderFactory objectBinderFactory = engineComponent.getObjectBinderFactory();
+        final InterceptorArgumentProvider interceptorArgumentProvider = objectBinderFactory.newInterceptorArgumentProvider(this);
+        final AutoBindingObjectFactory filterFactory = objectBinderFactory.newAutoBindingObjectFactory(pluginContext, classNode.getClassLoader(), interceptorArgumentProvider);
         final ObjectFactory objectFactory = ObjectFactory.byConstructor(filterTypeName, (Object[]) annotation.constructorArguments());
         final MethodFilter filter = (MethodFilter) filterFactory.createInstance(objectFactory);
 
@@ -467,85 +438,166 @@ public class ASMClass implements InstrumentClass {
                 m.addInterceptor(interceptorId);
             } else {
                 // TODO casting fix
-                interceptorId = ((ASMMethod) m).addInterceptorInternal(interceptorClassName, constructorArgs, scope, executionPolicy);
+                interceptorId = ((ASMMethod) m).addInterceptorInternal(interceptorClass, constructorArgs, scope, executionPolicy);
             }
         }
 
         if (interceptorId == -1) {
-            logger.warn("No methods are intercepted. target: " + this.classNode.getInternalName(), ", interceptor: " + interceptorClassName + ", methodFilter: " + filterTypeName);
+            logger.warn("No methods are intercepted. target:{}, interceptor:{}, methodFilter:{} ", this.classNode.getInternalName(), interceptorClass, filterTypeName);
         }
 
         return interceptorId;
     }
 
+
     @Override
-    public int addInterceptor(MethodFilter filter, String interceptorClassName) throws InstrumentException {
-        Asserts.notNull(filter, "filter");
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        return addScopedInterceptor0(filter, interceptorClassName, null, null, null);
+    public int addInterceptor(Class<? extends Interceptor> interceptorClass) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        return addInterceptor0(interceptorClass, null, null, null);
     }
 
     @Override
-    public int addInterceptor(MethodFilter filter, String interceptorClassName, Object[] constructorArgs) throws InstrumentException {
-        Asserts.notNull(filter, "filter");
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(constructorArgs, "constructorArgs");
-        return addScopedInterceptor0(filter, interceptorClassName, constructorArgs, null, null);
+    public int addInterceptor(Class<? extends Interceptor> interceptorClass, Object[] constructorArgs) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(constructorArgs, "constructorArgs ");
+        return addInterceptor0(interceptorClass, constructorArgs, null, null);
     }
 
     @Override
-    public int addScopedInterceptor(MethodFilter filter, String interceptorClassName, String scopeName, ExecutionPolicy executionPolicy) throws InstrumentException {
-        Asserts.notNull(filter, "filter");
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(scopeName, "scopeName");
-        Asserts.notNull(executionPolicy, "executionPolicy");
+    public int addInterceptor(MethodFilter filter, Class<? extends Interceptor> interceptorClass) throws InstrumentException {
+        Assert.requireNonNull(filter, "filter");
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+
+        return addScopedInterceptor0(filter, interceptorClass, null, null, null);
+    }
+
+    @Override
+    public int addInterceptor(MethodFilter filter, Class<? extends Interceptor> interceptorClass, Object[] constructorArgs) throws InstrumentException {
+        Assert.requireNonNull(filter, "filter");
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(constructorArgs, "constructorArgs");
+
+        return addScopedInterceptor0(filter, interceptorClass, constructorArgs, null, null);
+    }
+
+    @Override
+    public int addScopedInterceptor(Class<? extends Interceptor> interceptorClass, Object[] constructorArgs, String scopeName) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(scopeName, "scopeName");
         final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
-        return addScopedInterceptor0(filter, interceptorClassName, null, interceptorScope, executionPolicy);
+        return addInterceptor0(interceptorClass, constructorArgs, interceptorScope, ExecutionPolicy.BOUNDARY);
     }
 
     @Override
-    public int addScopedInterceptor(MethodFilter filter, String interceptorClassName, InterceptorScope scope, ExecutionPolicy executionPolicy) throws InstrumentException {
-        Asserts.notNull(filter, "filter");
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(scope, "scope");
-        Asserts.notNull(executionPolicy, "executionPolicy");
-        return addScopedInterceptor0(filter, interceptorClassName, null, scope, executionPolicy);
+    public int addScopedInterceptor(Class<? extends Interceptor> interceptorClass, Object[] constructorArgs, InterceptorScope interceptorScope) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(constructorArgs, "constructorArgs");
+        Assert.requireNonNull(interceptorScope, "interceptorScope");
+        return addInterceptor0(interceptorClass, constructorArgs, interceptorScope, ExecutionPolicy.BOUNDARY);
     }
 
     @Override
-    public int addScopedInterceptor(MethodFilter filter, String interceptorClassName, Object[] constructorArgs, String scopeName, ExecutionPolicy executionPolicy) throws InstrumentException {
-        Asserts.notNull(filter, "filter");
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(constructorArgs, "constructorArgs");
-        Asserts.notNull(scopeName, "scopeName");
-        Asserts.notNull(executionPolicy, "executionPolicy");
+    public int addScopedInterceptor(Class<? extends Interceptor> interceptorClass, Object[] constructorArgs, String scopeName, ExecutionPolicy executionPolicy) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(scopeName, "scopeName");
+        Assert.requireNonNull(executionPolicy, "executionPolicy");
         final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
-        return addScopedInterceptor0(filter, interceptorClassName, null, interceptorScope, executionPolicy);
+        return addInterceptor0(interceptorClass, constructorArgs, interceptorScope, executionPolicy);
     }
 
     @Override
-    public int addScopedInterceptor(MethodFilter filter, String interceptorClassName, Object[] constructorArgs, InterceptorScope scope, ExecutionPolicy executionPolicy) throws InstrumentException {
-        Asserts.notNull(filter, "filter");
-        Asserts.notNull(interceptorClassName, "interceptorClassName");
-        Asserts.notNull(constructorArgs, "constructorArgs");
-        Asserts.notNull(scope, "scope");
-        Asserts.notNull(executionPolicy, "executionPolicy");
-        return addScopedInterceptor0(filter, interceptorClassName, constructorArgs, scope, executionPolicy);
+    public int addScopedInterceptor(Class<? extends Interceptor> interceptorClass, Object[] constructorArgs, InterceptorScope interceptorScope, ExecutionPolicy executionPolicy) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(interceptorScope, "interceptorScope");
+        Assert.requireNonNull(executionPolicy, "executionPolicy");
+        return addInterceptor0(interceptorClass, constructorArgs, interceptorScope, executionPolicy);
     }
 
-    private int addScopedInterceptor0(MethodFilter filter, String interceptorClassName, Object[] constructorArgs, InterceptorScope scope, ExecutionPolicy executionPolicy) throws InstrumentException {
+    @Override
+    public int addScopedInterceptor(Class<? extends Interceptor> interceptorClass, String scopeName) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(scopeName, "scopeName");
+        final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
+        return addInterceptor0(interceptorClass, null, interceptorScope, ExecutionPolicy.BOUNDARY);
+    }
+
+    @Override
+    public int addScopedInterceptor(Class<? extends Interceptor> interceptorClass, InterceptorScope interceptorScope) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(interceptorScope, "scope");
+        return addInterceptor0(interceptorClass, null, interceptorScope, ExecutionPolicy.BOUNDARY);
+    }
+
+    @Override
+    public int addScopedInterceptor(Class<? extends Interceptor> interceptorClass, String scopeName, ExecutionPolicy executionPolicy) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(scopeName, "scopeName");
+        Assert.requireNonNull(executionPolicy, "executionPolicy");
+        final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
+        return addInterceptor0(interceptorClass, null, interceptorScope, executionPolicy);
+    }
+
+    @Override
+    public int addScopedInterceptor(Class<? extends Interceptor> interceptorClass, InterceptorScope interceptorScope, ExecutionPolicy executionPolicy) throws InstrumentException {
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(interceptorScope, "interceptorScope");
+        Assert.requireNonNull(executionPolicy, "executionPolicy");
+        return addInterceptor0(interceptorClass, null, interceptorScope, executionPolicy);
+    }
+
+    @Override
+    public int addScopedInterceptor(MethodFilter filter, Class<? extends Interceptor> interceptorClass, String scopeName, ExecutionPolicy executionPolicy) throws InstrumentException {
+        Assert.requireNonNull(filter, "filter");
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(scopeName, "scopeName");
+        Assert.requireNonNull(executionPolicy, "executionPolicy");
+        final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
+        return addScopedInterceptor0(filter, interceptorClass, null, interceptorScope, executionPolicy);
+    }
+
+    @Override
+    public int addScopedInterceptor(MethodFilter filter, Class<? extends Interceptor> interceptorClass, InterceptorScope interceptorScope, ExecutionPolicy executionPolicy) throws InstrumentException {
+        Assert.requireNonNull(filter, "filter");
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(interceptorScope, "interceptorScope");
+        Assert.requireNonNull(executionPolicy, "executionPolicy");
+        return addScopedInterceptor0(filter, interceptorClass, null, interceptorScope, executionPolicy);
+    }
+
+    @Override
+    public int addScopedInterceptor(MethodFilter filter, Class<? extends Interceptor> interceptorClass, Object[] constructorArgs, String scopeName, ExecutionPolicy executionPolicy) throws InstrumentException {
+        Assert.requireNonNull(filter, "filter");
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(constructorArgs, "constructorArgs");
+        Assert.requireNonNull(scopeName, "scopeName");
+        Assert.requireNonNull(executionPolicy, "executionPolicy");
+        final InterceptorScope interceptorScope = this.pluginContext.getInterceptorScope(scopeName);
+        return addScopedInterceptor0(filter, interceptorClass, constructorArgs, interceptorScope, executionPolicy);
+    }
+
+    @Override
+    public int addScopedInterceptor(MethodFilter filter, Class<? extends Interceptor> interceptorClass, Object[] constructorArgs, InterceptorScope interceptorScope, ExecutionPolicy executionPolicy) throws InstrumentException {
+        Assert.requireNonNull(filter, "filter");
+        Assert.requireNonNull(interceptorClass, "interceptorClass");
+        Assert.requireNonNull(constructorArgs, "constructorArgs");
+        Assert.requireNonNull(interceptorScope, "interceptorScope");
+        Assert.requireNonNull(executionPolicy, "executionPolicy");
+        return addScopedInterceptor0(filter, interceptorClass, constructorArgs, interceptorScope, executionPolicy);
+    }
+
+    private int addScopedInterceptor0(MethodFilter filter, Class<? extends Interceptor> interceptorClass, Object[] constructorArgs, InterceptorScope interceptorScope, ExecutionPolicy executionPolicy) throws InstrumentException {
         int interceptorId = -1;
         for (InstrumentMethod m : getDeclaredMethods(filter)) {
             if (interceptorId != -1) {
                 m.addInterceptor(interceptorId);
             } else {
                 // TODO casting fix
-                interceptorId = ((ASMMethod) m).addInterceptorInternal(interceptorClassName, constructorArgs, scope, executionPolicy);
+                interceptorId = ((ASMMethod) m).addInterceptorInternal(interceptorClass, constructorArgs, interceptorScope, executionPolicy);
             }
         }
 
         if (interceptorId == -1) {
-            logger.warn("No methods are intercepted. target: " + this.classNode.getInternalName(), ", interceptor: " + interceptorClassName + ", methodFilter: " + filter.getClass().getName());
+            logger.warn("No methods are intercepted. target:{}, interceptor:{}, methodFilter:{}", this.classNode.getInternalName(), interceptorClass, filter.getClass().getName());
         }
 
         return interceptorId;
@@ -553,9 +605,11 @@ public class ASMClass implements InstrumentClass {
 
     @Override
     public List<InstrumentClass> getNestedClasses(ClassFilter filter) {
+        Assert.requireNonNull(filter, "filter");
+
         final List<InstrumentClass> nestedClasses = new ArrayList<InstrumentClass>();
         for (ASMClassNodeAdapter innerClassNode : this.classNode.getInnerClasses()) {
-            final ASMNestedClass nestedClass = new ASMNestedClass(this.pluginContext, this.interceptorRegistryBinder, this.classLoader, innerClassNode);
+            final ASMNestedClass nestedClass = new ASMNestedClass(engineComponent, this.pluginContext, innerClassNode);
             if (filter.accept(nestedClass)) {
                 nestedClasses.add(nestedClass);
             }
@@ -568,7 +622,7 @@ public class ASMClass implements InstrumentClass {
         return modified;
     }
 
-    public void setModified(boolean modified) {
+    void setModified(boolean modified) {
         this.modified = modified;
     }
 

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2014 NAVER Corp.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,8 +32,15 @@ public final class TomcatConstants {
     public static final ServiceType TOMCAT_METHOD = ServiceTypeFactory.of(1011, "TOMCAT_METHOD");
 
     public static final String TOMCAT_SERVLET_ASYNC_SCOPE = "TomcatServletAsyncScope";
+    public static final String TOMCAT_SERVLET_REQUEST_TRACE = "com.navercorp.pinpoint.trace";
 
-    public static final String ASYNC_ACCESSOR = "com.navercorp.pinpoint.plugin.tomcat.AsyncAccessor";
-    public static final String TRACE_ACCESSOR = "com.navercorp.pinpoint.plugin.tomcat.TraceAccessor";
-
+    /**
+     * The name of the request attribute that should be set by the container
+     * when custom error-handling servlet or JSP page is invoked. The value of
+     * the attribute is of type {@code java.lang.Throwable}. See the chapter
+     * "Error Handling" in the Servlet Specification for details.
+     *
+     * @since Servlet 3.0
+     */
+    public static final String ERROR_EXCEPTION = "javax.servlet.error.exception";
 }

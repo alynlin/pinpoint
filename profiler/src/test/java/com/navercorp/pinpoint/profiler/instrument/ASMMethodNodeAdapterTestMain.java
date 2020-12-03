@@ -34,6 +34,8 @@ import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
+import static org.mockito.Mockito.mock;
+
 public class ASMMethodNodeAdapterTestMain {
     private final static InterceptorRegistryBinder interceptorRegistryBinder = new DefaultInterceptorRegistryBinder();
     private int interceptorId;
@@ -91,11 +93,11 @@ public class ASMMethodNodeAdapterTestMain {
         ClassLoader classLoader = new ClassLoader() {
             @Override
             public Class<?> loadClass(String name) throws ClassNotFoundException {
-                System.out.println("## load=" + name + ", internal=" + classInternalName);
                 if (!name.startsWith("java") && !name.startsWith("sun") && super.findLoadedClass(name) == null) {
                     try {
                         ClassNode classNode = ASMClassNodeLoader.get(JavaAssistUtils.javaNameToJvmName(name));
-                        ASMClass asmClass = new ASMClass(null, interceptorRegistryBinder, null, classNode);
+                        EngineComponent engineComponent = mock(DefaultEngineComponent.class);
+                        ASMClass asmClass = new ASMClass(engineComponent, null, null, null, classNode);
                         if (asmClass.isInterceptable()) {
                             for (InstrumentMethod method : asmClass.getDeclaredMethods()) {
                                 try {
@@ -107,7 +109,6 @@ public class ASMMethodNodeAdapterTestMain {
                         }
 
                         byte[] bytes = asmClass.toBytecode();
-                        System.out.println("bytes=" + bytes + ", " + bytes.length);
                         if (trace) {
                             ClassReader classReader = new ClassReader(bytes);
                             ClassWriter cw = new ClassWriter(0);
@@ -118,7 +119,6 @@ public class ASMMethodNodeAdapterTestMain {
                             CheckClassAdapter.verify(new ClassReader(bytes), false, new PrintWriter(System.out));
                         }
 
-                        System.out.println("define");
                         return super.defineClass(name, bytes, 0, bytes.length);
                     } catch (Throwable ex) {
                         ex.printStackTrace();

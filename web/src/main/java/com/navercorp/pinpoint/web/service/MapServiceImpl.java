@@ -18,98 +18,134 @@ package com.navercorp.pinpoint.web.service;
 
 import com.navercorp.pinpoint.web.applicationmap.ApplicationMap;
 import com.navercorp.pinpoint.web.applicationmap.ApplicationMapBuilder;
-import com.navercorp.pinpoint.web.applicationmap.rawdata.AgentHistogramList;
+import com.navercorp.pinpoint.web.applicationmap.ApplicationMapBuilderFactory;
+import com.navercorp.pinpoint.web.applicationmap.appender.histogram.DefaultNodeHistogramFactory;
+import com.navercorp.pinpoint.web.applicationmap.appender.histogram.NodeHistogramFactory;
+import com.navercorp.pinpoint.web.applicationmap.appender.histogram.datasource.MapResponseNodeHistogramDataSource;
+import com.navercorp.pinpoint.web.applicationmap.appender.histogram.datasource.WasNodeHistogramDataSource;
+import com.navercorp.pinpoint.web.applicationmap.appender.server.DefaultServerInstanceListFactory;
+import com.navercorp.pinpoint.web.applicationmap.appender.server.ServerInstanceListFactory;
+import com.navercorp.pinpoint.web.applicationmap.appender.server.datasource.AgentInfoServerInstanceListDataSource;
+import com.navercorp.pinpoint.web.applicationmap.appender.server.datasource.ServerInstanceListDataSource;
+import com.navercorp.pinpoint.web.applicationmap.link.LinkType;
+import com.navercorp.pinpoint.web.applicationmap.nodes.NodeType;
 import com.navercorp.pinpoint.web.applicationmap.rawdata.LinkDataDuplexMap;
-import com.navercorp.pinpoint.web.dao.HostApplicationMapDao;
 import com.navercorp.pinpoint.web.dao.MapResponseDao;
-import com.navercorp.pinpoint.web.dao.MapStatisticsCalleeDao;
-import com.navercorp.pinpoint.web.dao.MapStatisticsCallerDao;
 import com.navercorp.pinpoint.web.security.ServerMapDataFilter;
-import com.navercorp.pinpoint.web.view.ApplicationTimeHistogramViewModel;
+import com.navercorp.pinpoint.web.service.map.processor.LinkDataMapProcessor;
+import com.navercorp.pinpoint.web.service.map.LinkSelector;
+import com.navercorp.pinpoint.web.service.map.LinkSelectorFactory;
+import com.navercorp.pinpoint.web.service.map.LinkSelectorType;
+import com.navercorp.pinpoint.web.service.map.processor.WasOnlyProcessor;
 import com.navercorp.pinpoint.web.vo.Application;
 import com.navercorp.pinpoint.web.vo.Range;
-import com.navercorp.pinpoint.web.vo.ResponseTime;
 import com.navercorp.pinpoint.web.vo.SearchOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StopWatch;
 
-import java.util.List;
+import java.util.Collections;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * @author netspider
  * @author emeroad
  * @author minwoo.jung
+ * @author HyunGil Jeong
  */
 @Service
 public class MapServiceImpl implements MapService {
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
-    @Autowired
-    private AgentInfoService agentInfoService;
+    private final LinkSelectorFactory linkSelectorFactory;
 
-    @Autowired
-    private MapResponseDao mapResponseDao;
+    private final AgentInfoService agentInfoService;
 
-    @Autowired
-    private MapStatisticsCalleeDao mapStatisticsCalleeDao;
+    private final MapResponseDao mapResponseDao;
 
-    @Autowired
-    private MapStatisticsCallerDao mapStatisticsCallerDao;
+    private final ServerMapDataFilter serverMapDataFilter;
 
-    @Autowired
-    private HostApplicationMapDao hostApplicationMapDao;
+    private final ApplicationMapBuilderFactory applicationMapBuilderFactory;
 
-    @Autowired
-    private ApplicationFactory applicationFactory;
-    
-    @Autowired(required=false)
-    private ServerMapDataFilter serverMapDataFilter;
+    private final LinkDataLimiter linkDataLimiter;
+
+    @Value("${web.servermap.build.timeout:600000}")
+    private long buildTimeoutMillis;
+
+    public MapServiceImpl(LinkSelectorFactory linkSelectorFactory, AgentInfoService agentInfoService,
+                          MapResponseDao mapResponseDao,
+                          Optional<ServerMapDataFilter> serverMapDataFilter, ApplicationMapBuilderFactory applicationMapBuilderFactory, LinkDataLimiter linkDataLimiter) {
+        this.linkSelectorFactory = Objects.requireNonNull(linkSelectorFactory, "linkSelectorFactory");
+        this.agentInfoService = Objects.requireNonNull(agentInfoService, "agentInfoService");
+        this.mapResponseDao = Objects.requireNonNull(mapResponseDao, "mapResponseDao");
+        this.serverMapDataFilter = Objects.requireNonNull(serverMapDataFilter, "serverMapDataFilter").orElse(null);
+        this.applicationMapBuilderFactory = Objects.requireNonNull(applicationMapBuilderFactory, "applicationMapBuilderFactory");
+        this.linkDataLimiter = linkDataLimiter;
+    }
 
     /**
      * Used in the main UI - draws the server map by querying the timeslot by time.
      */
     @Override
-    public ApplicationMap selectApplicationMap(Application sourceApplication, Range range, SearchOption searchOption) {
-        if (sourceApplication == null) {
-            throw new NullPointerException("sourceApplication must not be null");
-        }
-        if (range == null) {
-            throw new NullPointerException("range must not be null");
-        }
+    public ApplicationMap selectApplicationMap(Application sourceApplication, Range range, SearchOption searchOption, NodeType nodeType, LinkType linkType) {
+        Objects.requireNonNull(sourceApplication, "sourceApplication");
+        Objects.requireNonNull(range, "range");
+
         logger.debug("SelectApplicationMap");
 
         StopWatch watch = new StopWatch("ApplicationMap");
         watch.start("ApplicationMap Hbase Io Fetch(Caller,Callee) Time");
 
-        LinkSelector linkSelector = new BFSLinkSelector(this.mapStatisticsCallerDao, this.mapStatisticsCalleeDao, hostApplicationMapDao, serverMapDataFilter);
-        LinkDataDuplexMap linkDataDuplexMap = linkSelector.select(sourceApplication, range, searchOption);
+        LinkSelectorType linkSelectorType = searchOption.getLinkSelectorType();
+        int callerSearchDepth = searchOption.getCallerSearchDepth();
+        int calleeSearchDepth = searchOption.getCalleeSearchDepth();
+
+        LinkDataMapProcessor callerLinkDataMapProcessor = LinkDataMapProcessor.NO_OP;
+        if (searchOption.isWasOnly()) {
+            callerLinkDataMapProcessor = new WasOnlyProcessor();
+        }
+        LinkDataMapProcessor calleeLinkDataMapProcessor = LinkDataMapProcessor.NO_OP;
+        LinkSelector linkSelector = linkSelectorFactory.createLinkSelector(linkSelectorType, callerLinkDataMapProcessor, calleeLinkDataMapProcessor);
+        LinkDataDuplexMap linkDataDuplexMap = linkSelector.select(Collections.singletonList(sourceApplication), range, callerSearchDepth, calleeSearchDepth);
         watch.stop();
 
+        if (linkDataLimiter.excess(linkDataDuplexMap.getTotalCount())) {
+            throw new RuntimeException("Too many link data. Reduce the values of the Inbound/outbound or do not select the bidirectional option. limiter=" + linkDataLimiter.toString(linkDataDuplexMap.getTotalCount()));
+        }
+
         watch.start("ApplicationMap MapBuilding(Response) Time");
-        ApplicationMapBuilder builder = new ApplicationMapBuilder(range);
-        ApplicationMap map = builder.build(linkDataDuplexMap, agentInfoService, this.mapResponseDao);
+
+        ApplicationMapBuilder builder = createApplicationMapBuilder(range, nodeType, linkType);
+        ApplicationMap map = builder.build(linkDataDuplexMap, buildTimeoutMillis);
         if (map.getNodes().isEmpty()) {
-            map = builder.build(sourceApplication, agentInfoService);
+            map = builder.build(sourceApplication, buildTimeoutMillis);
         }
         watch.stop();
         if (logger.isInfoEnabled()) {
             logger.info("ApplicationMap BuildTime: {}", watch.prettyPrint());
         }
-        if(serverMapDataFilter != null) {
+        if (serverMapDataFilter != null) {
             map = serverMapDataFilter.dataFiltering(map);
         }
-        
         return map;
     }
 
-    @Override
-    public ApplicationTimeHistogramViewModel selectResponseTimeHistogramData(Application application, Range range) {
-        List<ResponseTime> responseTimes = mapResponseDao.selectResponseTime(application, range);
-        return new ApplicationTimeHistogramViewModel(application, range, new AgentHistogramList(application, responseTimes));
-    }
+    private ApplicationMapBuilder createApplicationMapBuilder(Range range, NodeType nodeType, LinkType linkType) {
+        ApplicationMapBuilder builder = applicationMapBuilderFactory.createApplicationMapBuilder(range);
+        builder.nodeType(nodeType);
+        builder.linkType(linkType);
 
+        WasNodeHistogramDataSource wasNodeHistogramDataSource = new MapResponseNodeHistogramDataSource(mapResponseDao);
+        NodeHistogramFactory nodeHistogramFactory = new DefaultNodeHistogramFactory(wasNodeHistogramDataSource);
+        builder.includeNodeHistogram(nodeHistogramFactory);
+
+        ServerInstanceListDataSource serverInstanceListDataSource = new AgentInfoServerInstanceListDataSource(agentInfoService);
+        ServerInstanceListFactory serverInstanceListFactory = new DefaultServerInstanceListFactory(serverInstanceListDataSource);
+        builder.includeServerInfo(serverInstanceListFactory);
+        return builder;
+    }
 }

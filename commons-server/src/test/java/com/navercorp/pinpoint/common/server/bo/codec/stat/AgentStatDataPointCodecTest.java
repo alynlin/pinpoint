@@ -31,7 +31,7 @@ import java.util.List;
  */
 public class AgentStatDataPointCodecTest {
 
-    private AgentStatDataPointCodec codec = new AgentStatDataPointCodec();
+    private final AgentStatDataPointCodec codec = new AgentStatDataPointCodec();
 
     @Test
     public void test_timestamps() {
@@ -63,10 +63,10 @@ public class AgentStatDataPointCodecTest {
     }
 
     private List<Long> createTimestamps(long initialTimestampMs, long intervalMs, long randomDelta, int numValues) {
-        List<Long> timestamps = new ArrayList<>(numValues);
+        List<Long> timestamps = new ArrayList<Long>(numValues);
         timestamps.add(initialTimestampMs);
         long prevTimestamp = initialTimestampMs;
-        for (int i = 1; i < numValues; ++i) {
+        for (int i = 1; i < numValues; i++) {
             long delta = ((long) (Math.random() * (randomDelta * 2))) - randomDelta;
             long timestamp = prevTimestamp + (intervalMs + delta);
             timestamps.add(timestamp);

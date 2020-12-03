@@ -16,11 +16,9 @@
 
 package com.navercorp.pinpoint.plugin.jboss;
 
-import com.navercorp.pinpoint.bootstrap.config.ExcludeMethodFilter;
-import com.navercorp.pinpoint.bootstrap.config.ExcludePathFilter;
 import com.navercorp.pinpoint.bootstrap.config.Filter;
 import com.navercorp.pinpoint.bootstrap.config.ProfilerConfig;
-import com.navercorp.pinpoint.bootstrap.config.SkipFilter;
+import com.navercorp.pinpoint.bootstrap.config.ServerConfig;
 
 import java.util.List;
 
@@ -28,26 +26,19 @@ import java.util.List;
  * The Class JbossConfig.
  *
  * @author <a href="mailto:suraj.raturi89@gmail.com">Suraj Raturi</a>
+ * @author jaehong.kim
  */
 public class JbossConfig {
 
-    /** The jboss hide pinpoint header. */
-    private final boolean jbossHidePinpointHeader;
-
-    /** The jboss exclude url filter. */
-    private final Filter<String> jbossExcludeUrlFilter;
-
-    /** The jboss trace ejb. */
-    private final boolean jbossTraceEjb;
-    private final boolean jbossEnable;
-
-    private final List<String> jbossBootstrapMains;
-    private final boolean jbossConditionalTransformEnable;
-
-    private final String jbossRealIpHeader;
-    private final String jbossRealIpEmptyValue;
-    private final boolean jbossTraceRequestParam;
-    private final Filter<String> jbossExcludeProfileMethodFilter;
+    private final boolean hidePinpointHeader;
+    private final Filter<String> excludeUrlFilter;
+    private final boolean traceEjb;
+    private final boolean enable;
+    private final List<String> bootstrapMains;
+    private final String realIpHeader;
+    private final String realIpEmptyValue;
+    private final boolean traceRequestParam;
+    private final Filter<String> excludeProfileMethodFilter;
 
     /**
      * Instantiates a new jboss configuration.
@@ -55,41 +46,25 @@ public class JbossConfig {
      * @param config the config
      */
     public JbossConfig(final ProfilerConfig config) {
-        this.jbossEnable = config.readBoolean("profiler.jboss.enable", true);
-        this.jbossTraceEjb = config.readBoolean("profiler.jboss.traceEjb", false);
-
-        this.jbossBootstrapMains = config.readList("profiler.jboss.bootstrap.main");
-        this.jbossConditionalTransformEnable = config.readBoolean("profiler.jboss.conditional.transform", true);
-        this.jbossHidePinpointHeader = config.readBoolean("profiler.jboss.hidepinpointheader", true);
-
-        this.jbossTraceRequestParam = config.readBoolean("profiler.jboss.tracerequestparam", true);
-        final String jbossExcludeURL = config.readString("profiler.jboss.excludeurl", "");
-        if (!jbossExcludeURL.isEmpty()) {
-            this.jbossExcludeUrlFilter = new ExcludePathFilter(jbossExcludeURL);
-        } else {
-            this.jbossExcludeUrlFilter = new SkipFilter<String>();
-        }
-        this.jbossRealIpHeader = config.readString("profiler.jboss.realipheader", null);
-        this.jbossRealIpEmptyValue = config.readString("profiler.jboss.realipemptyvalue", null);
-
-        final String jbossExcludeProfileMethod = config.readString("profiler.jboss.excludemethod", "");
-        if (!jbossExcludeProfileMethod.isEmpty()) {
-            this.jbossExcludeProfileMethodFilter = new ExcludeMethodFilter(jbossExcludeProfileMethod);
-        } else {
-            this.jbossExcludeProfileMethodFilter = new SkipFilter<String>();
-        }
+        this.enable = config.readBoolean("profiler.jboss.enable", true);
+        this.traceEjb = config.readBoolean("profiler.jboss.traceEjb", false);
+        this.bootstrapMains = config.readList("profiler.jboss.bootstrap.main");
+        // Server
+        final ServerConfig serverConfig = new ServerConfig(config);
+        this.hidePinpointHeader = serverConfig.isHidePinpointHeader("profiler.jboss.hidepinpointheader");
+        this.traceRequestParam = serverConfig.isTraceRequestParam("profiler.jboss.tracerequestparam");
+        this.excludeUrlFilter = serverConfig.getExcludeUrlFilter("profiler.jboss.excludeurl");
+        this.realIpHeader = serverConfig.getRealIpHeader("profiler.jboss.realipheader");
+        this.realIpEmptyValue = serverConfig.getRealIpEmptyValue("profiler.jboss.realipemptyvalue");
+        this.excludeProfileMethodFilter = serverConfig.getExcludeMethodFilter("profiler.jboss.excludemethod");
     }
 
-    public boolean isJbossEnable() {
-        return jbossEnable;
+    public boolean isEnable() {
+        return enable;
     }
 
-    public List<String> getJbossBootstrapMains() {
-        return jbossBootstrapMains;
-    }
-
-    public boolean isJbossConditionalTransformEnable() {
-        return jbossConditionalTransformEnable;
+    public List<String> getBootstrapMains() {
+        return bootstrapMains;
     }
 
     /**
@@ -97,8 +72,8 @@ public class JbossConfig {
      *
      * @return true, if is jboss hide pinpoint header
      */
-    public boolean isJbossHidePinpointHeader() {
-        return jbossHidePinpointHeader;
+    public boolean isHidePinpointHeader() {
+        return hidePinpointHeader;
     }
 
     /**
@@ -106,8 +81,8 @@ public class JbossConfig {
      *
      * @return the jboss exclude url filter
      */
-    public Filter<String> getJbossExcludeUrlFilter() {
-        return jbossExcludeUrlFilter;
+    public Filter<String> getExcludeUrlFilter() {
+        return excludeUrlFilter;
     }
 
     /**
@@ -115,34 +90,39 @@ public class JbossConfig {
      *
      * @return true, if is jboss trace ejb
      */
-    public boolean isJbossTraceEjb() {
-        return jbossTraceEjb;
+    public boolean isTraceEjb() {
+        return traceEjb;
     }
 
 
-    public String getJbossRealIpHeader() {
-        return jbossRealIpHeader;
+    public String getRealIpHeader() {
+        return realIpHeader;
     }
 
-    public String getJbossRealIpEmptyValue() {
-        return jbossRealIpEmptyValue;
+    public String getRealIpEmptyValue() {
+        return realIpEmptyValue;
     }
 
-    public boolean isJbossTraceRequestParam() {
-        return jbossTraceRequestParam;
+    public boolean isTraceRequestParam() {
+        return traceRequestParam;
     }
 
-    public Filter<String> getJbossExcludeProfileMethodFilter() {
-        return jbossExcludeProfileMethodFilter;
+    public Filter<String> getExcludeProfileMethodFilter() {
+        return excludeProfileMethodFilter;
     }
 
     @Override
     public String toString() {
         final StringBuilder sb = new StringBuilder("JbossConfig{");
-        sb.append("jbossHidePinpointHeader=").append(jbossHidePinpointHeader);
-        sb.append(", jbossExcludeUrlFilter=").append(jbossExcludeUrlFilter);
-        sb.append(", jbossTraceEjb=").append(jbossTraceEjb);
-        sb.append(", jbossEnable=").append(jbossEnable);
+        sb.append("hidePinpointHeader=").append(hidePinpointHeader);
+        sb.append(", excludeUrlFilter=").append(excludeUrlFilter);
+        sb.append(", traceEjb=").append(traceEjb);
+        sb.append(", enable=").append(enable);
+        sb.append(", bootstrapMains=").append(bootstrapMains);
+        sb.append(", realIpHeader='").append(realIpHeader).append('\'');
+        sb.append(", realIpEmptyValue='").append(realIpEmptyValue).append('\'');
+        sb.append(", traceRequestParam=").append(traceRequestParam);
+        sb.append(", excludeProfileMethodFilter=").append(excludeProfileMethodFilter);
         sb.append('}');
         return sb.toString();
     }

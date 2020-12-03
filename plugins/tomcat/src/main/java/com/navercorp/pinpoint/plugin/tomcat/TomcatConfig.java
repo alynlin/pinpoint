@@ -17,11 +17,9 @@
 
 package com.navercorp.pinpoint.plugin.tomcat;
 
-import com.navercorp.pinpoint.bootstrap.config.ExcludeMethodFilter;
-import com.navercorp.pinpoint.bootstrap.config.ExcludePathFilter;
 import com.navercorp.pinpoint.bootstrap.config.Filter;
 import com.navercorp.pinpoint.bootstrap.config.ProfilerConfig;
-import com.navercorp.pinpoint.bootstrap.config.SkipFilter;
+import com.navercorp.pinpoint.bootstrap.config.ServerConfig;
 
 import java.util.List;
 
@@ -30,104 +28,77 @@ import java.util.List;
  */
 public class TomcatConfig {
 
-    private final boolean tomcatEnable;
-    private final List<String> tomcatBootstrapMains;
-    private final boolean tomcatConditionalTransformEnable;
-    private final boolean tomcatHidePinpointHeader;
+    private final boolean enable;
+    private final List<String> bootstrapMains;
+    private final boolean hidePinpointHeader;
 
-    private final boolean tomcatTraceRequestParam;
-    private final Filter<String> tomcatExcludeUrlFilter;
-    private final String tomcatRealIpHeader;
-    private final String tomcatRealIpEmptyValue;
-    private final Filter<String> tomcatExcludeProfileMethodFilter;
-
-    // for transform conditional check
-    private final List<String> springBootBootstrapMains;
+    private final boolean traceRequestParam;
+    private final Filter<String> excludeUrlFilter;
+    private final String realIpHeader;
+    private final String realIpEmptyValue;
+    private final Filter<String> excludeProfileMethodFilter;
 
     public TomcatConfig(ProfilerConfig config) {
         if (config == null) {
-            throw new NullPointerException("config must not be null");
+            throw new NullPointerException("config");
         }
 
         // plugin
-        this.tomcatEnable = config.readBoolean("profiler.tomcat.enable", true);
-        this.tomcatBootstrapMains = config.readList("profiler.tomcat.bootstrap.main");
-        this.tomcatConditionalTransformEnable = config.readBoolean("profiler.tomcat.conditional.transform", true);
-        this.tomcatHidePinpointHeader = config.readBoolean("profiler.tomcat.hidepinpointheader", true);
-
-        // runtime
-        this.tomcatTraceRequestParam = config.readBoolean("profiler.tomcat.tracerequestparam", true);
-        final String tomcatExcludeURL = config.readString("profiler.tomcat.excludeurl", "");
-        if (!tomcatExcludeURL.isEmpty()) {
-            this.tomcatExcludeUrlFilter = new ExcludePathFilter(tomcatExcludeURL);
-        } else {
-            this.tomcatExcludeUrlFilter = new SkipFilter<String>();
-        }
-        this.tomcatRealIpHeader = config.readString("profiler.tomcat.realipheader", null);
-        this.tomcatRealIpEmptyValue = config.readString("profiler.tomcat.realipemptyvalue", null);
-
-        final String tomcatExcludeProfileMethod = config.readString("profiler.tomcat.excludemethod", "");
-        if (!tomcatExcludeProfileMethod.isEmpty()) {
-            this.tomcatExcludeProfileMethodFilter = new ExcludeMethodFilter(tomcatExcludeProfileMethod);
-        } else {
-            this.tomcatExcludeProfileMethodFilter = new SkipFilter<String>();
-        }
-
-        this.springBootBootstrapMains = config.readList("profiler.springboot.bootstrap.main");
+        this.enable = config.readBoolean("profiler.tomcat.enable", true);
+        this.bootstrapMains = config.readList("profiler.tomcat.bootstrap.main");
+        // Server
+        final ServerConfig serverConfig = new ServerConfig(config);
+        this.hidePinpointHeader = serverConfig.isHidePinpointHeader("profiler.tomcat.hidepinpointheader");
+        this.traceRequestParam = serverConfig.isTraceRequestParam("profiler.tomcat.tracerequestparam");
+        this.excludeUrlFilter = serverConfig.getExcludeUrlFilter("profiler.tomcat.excludeurl");
+        this.realIpHeader = serverConfig.getRealIpHeader("profiler.tomcat.realipheader");
+        this.realIpEmptyValue = serverConfig.getRealIpEmptyValue("profiler.tomcat.realipemptyvalue");
+        this.excludeProfileMethodFilter = serverConfig.getExcludeMethodFilter("profiler.tomcat.excludemethod");
     }
 
-    public boolean isTomcatEnable() {
-        return tomcatEnable;
+    public boolean isEnable() {
+        return enable;
     }
 
-    public List<String> getTomcatBootstrapMains() {
-        return tomcatBootstrapMains;
+    public List<String> getBootstrapMains() {
+        return bootstrapMains;
     }
 
-    public boolean isTomcatConditionalTransformEnable() {
-        return tomcatConditionalTransformEnable;
+    public boolean isHidePinpointHeader() {
+        return hidePinpointHeader;
     }
 
-    public boolean isTomcatHidePinpointHeader() {
-        return tomcatHidePinpointHeader;
+    public boolean isTraceRequestParam() {
+        return traceRequestParam;
     }
 
-    public boolean isTomcatTraceRequestParam() {
-        return tomcatTraceRequestParam;
+    public Filter<String> getExcludeUrlFilter() {
+        return excludeUrlFilter;
     }
 
-    public Filter<String> getTomcatExcludeUrlFilter() {
-        return tomcatExcludeUrlFilter;
+    public String getRealIpHeader() {
+        return realIpHeader;
     }
 
-    public String getTomcatRealIpHeader() {
-        return tomcatRealIpHeader;
+    public String getRealIpEmptyValue() {
+        return realIpEmptyValue;
     }
 
-    public String getTomcatRealIpEmptyValue() {
-        return tomcatRealIpEmptyValue;
-    }
-
-    public Filter<String> getTomcatExcludeProfileMethodFilter() {
-        return tomcatExcludeProfileMethodFilter;
-    }
-
-    public List<String> getSpringBootBootstrapMains() {
-        return springBootBootstrapMains;
+    public Filter<String> getExcludeProfileMethodFilter() {
+        return excludeProfileMethodFilter;
     }
 
     @Override
     public String toString() {
         final StringBuilder sb = new StringBuilder("TomcatConfig{");
-        sb.append("tomcatEnable=").append(tomcatEnable);
-        sb.append(", tomcatBootstrapMains=").append(tomcatBootstrapMains);
-        sb.append(", tomcatConditionalTransformEnable=").append(tomcatConditionalTransformEnable);
-        sb.append(", tomcatHidePinpointHeader=").append(tomcatHidePinpointHeader);
-        sb.append(", tomcatTraceRequestParam=").append(tomcatTraceRequestParam);
-        sb.append(", tomcatExcludeUrlFilter=").append(tomcatExcludeUrlFilter);
-        sb.append(", tomcatRealIpHeader='").append(tomcatRealIpHeader).append('\'');
-        sb.append(", tomcatRealIpEmptyValue='").append(tomcatRealIpEmptyValue).append('\'');
-        sb.append(", tomcatExcludeProfileMethodFilter=").append(tomcatExcludeProfileMethodFilter);
+        sb.append("enable=").append(enable);
+        sb.append(", bootstrapMains=").append(bootstrapMains);
+        sb.append(", hidePinpointHeader=").append(hidePinpointHeader);
+        sb.append(", traceRequestParam=").append(traceRequestParam);
+        sb.append(", excludeUrlFilter=").append(excludeUrlFilter);
+        sb.append(", realIpHeader='").append(realIpHeader).append('\'');
+        sb.append(", realIpEmptyValue='").append(realIpEmptyValue).append('\'');
+        sb.append(", excludeProfileMethodFilter=").append(excludeProfileMethodFilter);
         sb.append('}');
         return sb.toString();
     }

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2014 NAVER Corp.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,8 @@
  * limitations under the License.
  */
 package com.navercorp.pinpoint.profiler.objectfactory;
+
+import com.navercorp.pinpoint.common.profiler.util.IntegerUtils;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
@@ -93,9 +95,7 @@ public class StaticMethodResolver {
         public int compare(Method o1, Method o2) {
             int p1 = o1.getParameterTypes().length;
             int p2 = o2.getParameterTypes().length;
-            
-            return (p1 < p2) ? 1 : ((p1 == p2) ? 0 : -1);
+            return IntegerUtils.compare(p2, p1);
         }
-        
     };
 }

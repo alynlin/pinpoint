@@ -1,11 +1,12 @@
-/**
- * Copyright 2014 NAVER Corp.
+/*
+ * Copyright 2018 NAVER Corp.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
- *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -13,6 +14,10 @@
  * limitations under the License.
  */
 package com.navercorp.pinpoint.profiler.objectfactory;
+
+import com.navercorp.pinpoint.common.profiler.util.IntegerUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
@@ -24,26 +29,31 @@ import java.util.Comparator;
  *
  */
 public class ConstructorResolver {
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+
     private final Class<?> type;
     private final ArgumentsResolver argumentsResolver;
     
     private Constructor<?> resolvedConstructor;
     private Object[] resolvedArguments;
-    
+
     public ConstructorResolver(Class<?> type, ArgumentsResolver argumentsResolver) {
+        if (type == null) {
+            throw new NullPointerException("type");
+        }
         this.type = type;
         this.argumentsResolver = argumentsResolver;
     }
 
     public boolean resolve() {
-        Constructor<?>[] constructors = (Constructor<?>[]) type.getConstructors();
+        final Constructor<?>[] constructors = type.getConstructors();
         Arrays.sort(constructors, CONSTRUCTOR_COMPARATOR);
         
         for (Constructor<?> constructor : constructors) {
-            Class<?>[] types = constructor.getParameterTypes();
-            Annotation[][] annotations = constructor.getParameterAnnotations();
+            final Class<?>[] parameterTypes = constructor.getParameterTypes();
+            final Annotation[][] parameterAnnotations = constructor.getParameterAnnotations();
 
-            Object[] resolvedArguments = argumentsResolver.resolve(types, annotations);
+            Object[] resolvedArguments = argumentsResolver.resolve(parameterTypes, parameterAnnotations);
             
             if (resolvedArguments != null) {
                 this.resolvedConstructor = constructor;
@@ -52,7 +62,9 @@ public class ConstructorResolver {
                 return true;
             }
         }
-        
+        if (logger.isWarnEnabled()) {
+            resolveFailLog(type);
+        }
         return false;
     }
 
@@ -64,6 +76,20 @@ public class ConstructorResolver {
         return resolvedArguments;
     }
 
+    private void resolveFailLog(Class<?> type) {
+        final Constructor<?>[] constructors = type.getConstructors();
+
+        for (Constructor<?> constructor : constructors) {
+            final Class<?>[] parameterTypes = constructor.getParameterTypes();
+            logger.warn("Constructor resolve fail. class:{} {}", type.getName(), Arrays.toString(parameterTypes));
+            for (int i = 0; i < parameterTypes.length; i++) {
+                final Class<?> parameterClass = parameterTypes[i];
+                final ClassLoader parameterClassLoader = type.getClassLoader();
+                logger.warn("index:{} {} cl:{}", i, parameterClass, parameterClassLoader);
+            }
+        }
+    }
+
     private static final Comparator<Constructor<?>> CONSTRUCTOR_COMPARATOR = new Comparator<Constructor<?>>() {
 
         @Override
@@ -71,8 +97,9 @@ public class ConstructorResolver {
             int p1 = o1.getParameterTypes().length;
             int p2 = o2.getParameterTypes().length;
             
-            return (p1 < p2) ? 1 : ((p1 == p2) ? 0 : -1);
+            return IntegerUtils.compare(p2, p1);
         }
+
         
     };
 }

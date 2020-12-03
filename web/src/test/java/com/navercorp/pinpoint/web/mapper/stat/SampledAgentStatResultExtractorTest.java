@@ -18,6 +18,7 @@ package com.navercorp.pinpoint.web.mapper.stat;
 
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatDataPoint;
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatType;
+import com.navercorp.pinpoint.web.mapper.stat.sampling.sampler.AgentStatSampler;
 import com.navercorp.pinpoint.web.util.TimeWindow;
 import com.navercorp.pinpoint.web.util.TimeWindowSampler;
 import com.navercorp.pinpoint.web.vo.Range;
@@ -30,7 +31,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.mockito.runners.MockitoJUnitRunner;
+import org.mockito.junit.MockitoJUnitRunner;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -90,12 +91,14 @@ public class SampledAgentStatResultExtractorTest {
         final int numValues = 10;
         final long initialTimestamp = System.currentTimeMillis();
         final long finalTimestamp = initialTimestamp + (DEFAULT_TIME_INTERVAL * numValues);
-        final TimeWindow timeWindow = new TimeWindow(new Range(initialTimestamp, finalTimestamp), ONE_TO_ONE_SAMPLER);
+        final TimeWindow timeWindow = new TimeWindow(Range.newRange(initialTimestamp, finalTimestamp), ONE_TO_ONE_SAMPLER);
         final List<TestAgentStatDataPoint> dataPoints = createDataPoints(finalTimestamp, DEFAULT_TIME_INTERVAL, numValues);
         final Map<Long, List<TestAgentStatDataPoint>> expectedDataPointSlotMap = getExpectedDataPointSlotMap(timeWindow, dataPoints);
         when(this.rowMapper.mapRow(this.result, 0)).thenReturn(dataPoints);
 
-        TestResultExtractor resultExtractor = new TestResultExtractor(timeWindow, this.rowMapper);
+        TestAgentStatSampler testAgentStatSampler = new TestAgentStatSampler();
+        SampledAgentStatResultExtractor<TestAgentStatDataPoint, TestSampledAgentStatDataPoint> resultExtractor
+                = new SampledAgentStatResultExtractor<>(timeWindow, this.rowMapper, testAgentStatSampler);
         // When
         List<TestSampledAgentStatDataPoint> sampledDataPoints = resultExtractor.extractData(this.resultScanner);
         // Then
@@ -111,12 +114,14 @@ public class SampledAgentStatResultExtractorTest {
         final int numValues = 20;
         final long initialTimestamp = System.currentTimeMillis();
         final long finalTimestamp = initialTimestamp + (DEFAULT_TIME_INTERVAL * numValues);
-        final TimeWindow timeWindow = new TimeWindow(new Range(initialTimestamp, finalTimestamp), TWO_TO_ONE_SAMPLER);
+        final TimeWindow timeWindow = new TimeWindow(Range.newRange(initialTimestamp, finalTimestamp), TWO_TO_ONE_SAMPLER);
         final List<TestAgentStatDataPoint> dataPoints = createDataPoints(finalTimestamp, DEFAULT_TIME_INTERVAL, numValues);
         final Map<Long, List<TestAgentStatDataPoint>> expectedDataPointSlotMap = getExpectedDataPointSlotMap(timeWindow, dataPoints);
         when(this.rowMapper.mapRow(this.result, 0)).thenReturn(dataPoints);
 
-        TestResultExtractor resultExtractor = new TestResultExtractor(timeWindow, this.rowMapper);
+        TestAgentStatSampler testAgentStatSampler = new TestAgentStatSampler();
+        SampledAgentStatResultExtractor<TestAgentStatDataPoint, TestSampledAgentStatDataPoint> resultExtractor
+                = new SampledAgentStatResultExtractor<>(timeWindow, this.rowMapper, testAgentStatSampler);
         // When
         List<TestSampledAgentStatDataPoint> sampledDataPoints = resultExtractor.extractData(this.resultScanner);
         // Then
@@ -132,12 +137,14 @@ public class SampledAgentStatResultExtractorTest {
         final int numValues = 100;
         final long initialTimestamp = System.currentTimeMillis();
         final long finalTimestamp = initialTimestamp + (DEFAULT_TIME_INTERVAL * numValues);
-        final TimeWindow timeWindow = new TimeWindow(new Range(initialTimestamp, finalTimestamp), TEN_TO_ONE_SAMPLER);
+        final TimeWindow timeWindow = new TimeWindow(Range.newRange(initialTimestamp, finalTimestamp), TEN_TO_ONE_SAMPLER);
         final List<TestAgentStatDataPoint> dataPoints = createDataPoints(finalTimestamp, DEFAULT_TIME_INTERVAL, numValues);
         final Map<Long, List<TestAgentStatDataPoint>> expectedDataPointSlotMap = getExpectedDataPointSlotMap(timeWindow, dataPoints);
         when(this.rowMapper.mapRow(this.result, 0)).thenReturn(dataPoints);
 
-        TestResultExtractor resultExtractor = new TestResultExtractor(timeWindow, this.rowMapper);
+        TestAgentStatSampler testAgentStatSampler = new TestAgentStatSampler();
+        SampledAgentStatResultExtractor<TestAgentStatDataPoint, TestSampledAgentStatDataPoint> resultExtractor
+                = new SampledAgentStatResultExtractor<>(timeWindow, this.rowMapper, testAgentStatSampler);
         // When
         List<TestSampledAgentStatDataPoint> sampledDataPoints = resultExtractor.extractData(this.resultScanner);
         // Then
@@ -160,7 +167,7 @@ public class SampledAgentStatResultExtractorTest {
 
     private List<TestAgentStatDataPoint> createDataPoints(long finalTimestamp, long timeInterval, int numDataPoints) {
         List<TestAgentStatDataPoint> dataPoints = new ArrayList<>(numDataPoints);
-        for (int i = 0; i < numDataPoints; ++i) {
+        for (int i = 0; i < numDataPoints; i++) {
             TestAgentStatDataPoint dataPoint = new TestAgentStatDataPoint();
             dataPoint.setTimestamp(finalTimestamp - (timeInterval * i));
             dataPoint.setValue(i);
@@ -169,20 +176,17 @@ public class SampledAgentStatResultExtractorTest {
         return dataPoints;
     }
 
-    private static class TestResultExtractor extends SampledAgentStatResultExtractor<TestAgentStatDataPoint, TestSampledAgentStatDataPoint> {
-
-        public TestResultExtractor(TimeWindow timeWindow, AgentStatMapperV2<TestAgentStatDataPoint> rowMapper) {
-            super(timeWindow, rowMapper);
-        }
+    private static class TestAgentStatSampler implements AgentStatSampler<TestAgentStatDataPoint, TestSampledAgentStatDataPoint> {
 
         @Override
-        protected TestSampledAgentStatDataPoint sampleCurrentBatch(long timestamp, List<TestAgentStatDataPoint> dataPointsToSample) {
-            return new TestSampledAgentStatDataPoint(timestamp, dataPointsToSample);
+        public TestSampledAgentStatDataPoint sampleDataPoints(int timeWindowIndex, long timestamp, List<TestAgentStatDataPoint> dataPoints, TestAgentStatDataPoint previousDataPoint) {
+            return new TestSampledAgentStatDataPoint(timestamp, dataPoints);
         }
     }
 
     private static class TestAgentStatDataPoint implements AgentStatDataPoint {
         private String agentId;
+        private long startTimestamp;
         private long timestamp;
         private int value;
 
@@ -194,6 +198,16 @@ public class SampledAgentStatResultExtractorTest {
         @Override
         public void setAgentId(String agentId) {
             this.agentId = agentId;
+        }
+
+        @Override
+        public long getStartTimestamp() {
+            return startTimestamp;
+        }
+
+        @Override
+        public void setStartTimestamp(long startTimestamp) {
+            this.startTimestamp = startTimestamp;
         }
 
         @Override
@@ -220,29 +234,10 @@ public class SampledAgentStatResultExtractorTest {
         }
 
         @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-
-            TestAgentStatDataPoint that = (TestAgentStatDataPoint) o;
-
-            if (timestamp != that.timestamp) return false;
-            if (value != that.value) return false;
-            return agentId != null ? agentId.equals(that.agentId) : that.agentId == null;
-        }
-
-        @Override
-        public int hashCode() {
-            int result = agentId != null ? agentId.hashCode() : 0;
-            result = 31 * result + (int) (timestamp ^ (timestamp >>> 32));
-            result = 31 * result + value;
-            return result;
-        }
-
-        @Override
         public String toString() {
             return "TestAgentStatDataPoint{" +
                     "agentId='" + agentId + '\'' +
+                    ", startTimestamp=" + startTimestamp +
                     ", timestamp=" + timestamp +
                     ", value=" + value +
                     '}';

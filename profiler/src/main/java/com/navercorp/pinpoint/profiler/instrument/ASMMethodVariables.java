@@ -17,6 +17,7 @@ package com.navercorp.pinpoint.profiler.instrument;
 
 import com.navercorp.pinpoint.bootstrap.interceptor.Interceptor;
 import com.navercorp.pinpoint.bootstrap.interceptor.registry.InterceptorRegistry;
+import com.navercorp.pinpoint.common.profiler.util.IntegerUtils;
 import com.navercorp.pinpoint.profiler.instrument.interceptor.InterceptorDefinition;
 import com.navercorp.pinpoint.profiler.instrument.interceptor.InterceptorType;
 import com.navercorp.pinpoint.profiler.util.JavaAssistUtils;
@@ -64,7 +65,7 @@ public class ASMMethodVariables {
     private final LabelNode interceptorVariableStartLabelNode = new LabelNode();
     private final LabelNode interceptorVariableEndLabelNode = new LabelNode();
 
-    private final String declaringClassName;
+    private final String declaringClassInternalName;
     private final MethodNode methodNode;
     private final Type[] argumentTypes;
     private final Type returnType;
@@ -90,8 +91,8 @@ public class ASMMethodVariables {
     private int resultVarIndex;
     private int throwableVarIndex;
 
-    public ASMMethodVariables(final String declaringClassName, final MethodNode methodNode) {
-        this.declaringClassName = declaringClassName;
+    public ASMMethodVariables(final String declaringClassInternalName, final MethodNode methodNode) {
+        this.declaringClassInternalName = declaringClassInternalName;
         this.methodNode = methodNode;
         this.nextLocals = methodNode.maxLocals;
         this.argumentTypes = Type.getArgumentTypes(methodNode.desc);
@@ -150,7 +151,7 @@ public class ASMMethodVariables {
         Collections.sort(localVariableNodes, new Comparator<LocalVariableNode>() {
             @Override
             public int compare(LocalVariableNode o1, LocalVariableNode o2) {
-                return o1.index - o2.index;
+                return IntegerUtils.compare(o1.index, o2.index);
             }
         });
         String[] names = new String[this.argumentTypes.length];
@@ -199,7 +200,7 @@ public class ASMMethodVariables {
         instructions.insert(instructions.getLast(), variableEndLabelNode);
 
         if (!isStatic()) {
-            addLocalVariable("this", Type.getObjectType(this.declaringClassName).getDescriptor(), variableStartLabelNode, variableEndLabelNode);
+            addLocalVariable("this", Type.getObjectType(this.declaringClassInternalName).getDescriptor(), variableStartLabelNode, variableEndLabelNode);
         }
 
         for (Type type : this.argumentTypes) {
@@ -221,7 +222,7 @@ public class ASMMethodVariables {
         }
 
         if (this.enterInsnNode == null) {
-            throw new IllegalStateException("not found enter code. " + declaringClassName + "/" + methodNode.name + methodNode.desc);
+            throw new IllegalStateException("not found enter code. " + declaringClassInternalName + "/" + methodNode.name + methodNode.desc);
         }
 
         this.exitInsnNode = methodNode.instructions.getLast();
@@ -318,7 +319,7 @@ public class ASMMethodVariables {
     private void initClassNameVar(InsnList instructions) {
         assertInitializedInterceptorLocalVariables();
         this.classNameVarIndex = addInterceptorLocalVariable("_$PINPOINT$_className", "Ljava/lang/String;");
-        push(instructions, JavaAssistUtils.jvmNameToJavaName(this.declaringClassName));
+        push(instructions, JavaAssistUtils.jvmNameToJavaName(this.declaringClassInternalName));
         storeVar(instructions, this.classNameVarIndex);
     }
 

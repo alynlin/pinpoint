@@ -18,6 +18,7 @@ package com.navercorp.pinpoint.bootstrap.plugin.jdbc;
 
 import com.navercorp.pinpoint.bootstrap.context.DatabaseInfo;
 import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.common.util.Assert;
 
 import java.util.List;
 
@@ -26,28 +27,28 @@ import java.util.List;
  */
 public class DefaultDatabaseInfo implements DatabaseInfo {
 
-    private ServiceType type = ServiceType.UNKNOWN_DB;
-    private ServiceType executeQueryType = ServiceType.UNKNOWN_DB_EXECUTE_QUERY;
-    private String databaseId;
-    private String realUrl; // URL BEFORE refinement
-    private String normalizedUrl;
-    private List<String> host;
-    private String multipleHost;
+    private final ServiceType type;
+    private final ServiceType executeQueryType;
+    private final String databaseId;
+    private final String realUrl; // URL BEFORE refinement
+    private final String normalizedUrl;
+    private final List<String> host;
+    private final String multipleHost;
+    private final boolean parsingComplete;
 
     public DefaultDatabaseInfo(ServiceType type, ServiceType executeQueryType, String realUrl, String normalizedUrl, List<String> host, String databaseId) {
-        if (type == null) {
-            throw new NullPointerException("type must not be null");
-        }
-        if (executeQueryType == null) {
-            throw new NullPointerException("executeQueryType must not be null");
-        }
-        this.type = type;
-        this.executeQueryType = executeQueryType;
+        this(type, executeQueryType, realUrl, normalizedUrl, host, databaseId, true);
+    }
+
+    public DefaultDatabaseInfo(ServiceType type, ServiceType executeQueryType, String realUrl, String normalizedUrl, List<String> host, String databaseId, boolean parsingComplete) {
+        this.type = Assert.requireNonNull(type, "type");
+        this.executeQueryType = Assert.requireNonNull(executeQueryType, "executeQueryType");
         this.realUrl = realUrl;
         this.normalizedUrl = normalizedUrl;
         this.host = host;
         this.multipleHost = merge(host);
         this.databaseId = databaseId;
+        this.parsingComplete = parsingComplete;
     }
 
     private String merge(List<String> host) {
@@ -102,14 +103,23 @@ public class DefaultDatabaseInfo implements DatabaseInfo {
     }
 
     @Override
-    public String toString() {
-        return "DatabaseInfo{" +
-                "type=" + type +
-                ", executeQueryType=" + executeQueryType +
-                ", databaseId='" + databaseId + '\'' +
-                ", realUrl='" + realUrl + '\'' +
-                ", normalizedUrl='" + normalizedUrl + '\'' +
-                ", host=" + host +
-                '}';
+    public boolean isParsingComplete() {
+        return parsingComplete;
     }
+
+    @Override
+    public String toString() {
+        final StringBuilder sb = new StringBuilder("DefaultDatabaseInfo{");
+        sb.append("type=").append(type);
+        sb.append(", executeQueryType=").append(executeQueryType);
+        sb.append(", databaseId='").append(databaseId).append('\'');
+        sb.append(", realUrl='").append(realUrl).append('\'');
+        sb.append(", normalizedUrl='").append(normalizedUrl).append('\'');
+        sb.append(", host=").append(host);
+        sb.append(", multipleHost='").append(multipleHost).append('\'');
+        sb.append(", parsingComplete=").append(parsingComplete);
+        sb.append('}');
+        return sb.toString();
+    }
+
 }

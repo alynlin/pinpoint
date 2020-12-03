@@ -17,21 +17,25 @@
 
 package com.navercorp.pinpoint.collector.cluster.connection;
 
+import com.navercorp.pinpoint.collector.cluster.ClusterAddressProvider;
+import com.navercorp.pinpoint.collector.util.Address;
 import com.navercorp.pinpoint.rpc.PinpointSocket;
+import com.navercorp.pinpoint.rpc.client.DefaultPinpointClientFactory;
 import com.navercorp.pinpoint.rpc.client.PinpointClientFactory;
 import com.navercorp.pinpoint.rpc.cluster.ClusterOption;
 import com.navercorp.pinpoint.rpc.cluster.Role;
 import com.navercorp.pinpoint.rpc.util.ClassUtils;
 import com.navercorp.pinpoint.rpc.util.ClientFactoryUtils;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
- * @Author Taejin Koo
+ * @author Taejin Koo
  */
 public class CollectorClusterConnector implements CollectorClusterConnectionProvider {
 
@@ -40,7 +44,7 @@ public class CollectorClusterConnector implements CollectorClusterConnectionProv
 
     private PinpointClientFactory clientFactory;
     public CollectorClusterConnector(CollectorClusterConnectionOption option) {
-        this.option = option;
+        this.option = Objects.requireNonNull(option, "option");
     }
 
     @Override
@@ -49,11 +53,12 @@ public class CollectorClusterConnector implements CollectorClusterConnectionProv
 
         ClusterOption clusterOption = new ClusterOption(true, option.getClusterId(), Role.ROUTER);
 
-        this.clientFactory = new PinpointClientFactory();
+        this.clientFactory = new DefaultPinpointClientFactory();
 
-        this.clientFactory.setTimeoutMillis(1000 * 5);
+        this.clientFactory.setWriteTimeoutMillis(1000 * 3);
+        this.clientFactory.setRequestTimeoutMillis(1000 * 5);
         this.clientFactory.setMessageListener(option.getRouteMessageHandler());
-        this.clientFactory.setServerStreamChannelMessageListener(option.getRouteStreamMessageHandler());
+        this.clientFactory.setServerStreamChannelMessageHandler(option.getRouteStreamMessageHandler());
         this.clientFactory.setClusterOption(clusterOption);
 
         Map<String, Object> properties = new HashMap<>();
@@ -74,12 +79,12 @@ public class CollectorClusterConnector implements CollectorClusterConnectionProv
         logger.info("{} destroying completed.", ClassUtils.simpleClassName(this));
     }
 
-    PinpointSocket connect(InetSocketAddress address) {
-        if (clientFactory == null) {
-            throw new IllegalStateException("not started.");
-        }
+    PinpointSocket connect(Address address) {
+        Objects.requireNonNull(clientFactory, "not started.");
+        Objects.requireNonNull(address, "address");
 
-        PinpointSocket socket = ClientFactoryUtils.createPinpointClient(address, clientFactory);
+        ClusterAddressProvider clusterAddressProvider = new ClusterAddressProvider(address);
+        PinpointSocket socket = ClientFactoryUtils.createPinpointClient(clusterAddressProvider, clientFactory);
         return socket;
     }
 

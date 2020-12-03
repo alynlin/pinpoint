@@ -18,12 +18,14 @@ package com.navercorp.pinpoint.web.mapper.stat;
 
 import com.navercorp.pinpoint.common.buffer.Buffer;
 import com.navercorp.pinpoint.common.buffer.OffsetFixedBuffer;
-import com.navercorp.pinpoint.common.hbase.HBaseTables;
+import com.navercorp.pinpoint.common.hbase.HbaseColumnFamily;
 import com.navercorp.pinpoint.common.server.bo.codec.stat.AgentStatDecoder;
 import com.navercorp.pinpoint.common.server.bo.serializer.stat.AgentStatDecodingContext;
 import com.navercorp.pinpoint.common.server.bo.serializer.stat.AgentStatHbaseOperationFactory;
 import com.navercorp.pinpoint.common.server.bo.stat.AgentStatDataPoint;
+import com.navercorp.pinpoint.common.server.bo.stat.AgentStatDataPointList;
 import com.navercorp.pinpoint.web.mapper.TimestampFilter;
+
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.client.Result;
@@ -38,14 +40,8 @@ import java.util.List;
  */
 public class AgentStatMapperV2<T extends AgentStatDataPoint> implements AgentStatMapper<T> {
 
-    public final static Comparator<AgentStatDataPoint> REVERSE_TIMESTAMP_COMPARATOR = new Comparator<AgentStatDataPoint>() {
-        @Override
-        public int compare(AgentStatDataPoint o1, AgentStatDataPoint o2) {
-            long x = o2.getTimestamp();
-            long y = o1.getTimestamp();
-            return (x < y) ? -1 : ((x == y) ? 0 : 1);
-        }
-    };
+    public final static Comparator<AgentStatDataPoint> REVERSE_TIMESTAMP_COMPARATOR
+            = Collections.reverseOrder(Comparator.comparingLong(AgentStatDataPoint::getTimestamp));
 
     private final AgentStatHbaseOperationFactory hbaseOperationFactory;
     private final AgentStatDecoder<T> decoder;
@@ -69,7 +65,7 @@ public class AgentStatMapperV2<T extends AgentStatDataPoint> implements AgentSta
         List<T> dataPoints = new ArrayList<>();
 
         for (Cell cell : result.rawCells()) {
-            if (CellUtil.matchingFamily(cell, HBaseTables.AGENT_STAT_CF_STATISTICS)) {
+            if (CellUtil.matchingFamily(cell, HbaseColumnFamily.AGENT_STAT_STATISTICS.getName())) {
                 Buffer qualifierBuffer = new OffsetFixedBuffer(cell.getQualifierArray(), cell.getQualifierOffset(), cell.getQualifierLength());
                 Buffer valueBuffer = new OffsetFixedBuffer(cell.getValueArray(), cell.getValueOffset(), cell.getValueLength());
 
@@ -81,8 +77,7 @@ public class AgentStatMapperV2<T extends AgentStatDataPoint> implements AgentSta
                 decodingContext.setTimestampDelta(timestampDelta);
                 List<T> candidates = this.decoder.decodeValue(valueBuffer, decodingContext);
                 for (T candidate : candidates) {
-                    long timestamp = candidate.getTimestamp();
-                    if (this.filter.filter(timestamp)) {
+                    if (filter(candidate)) {
                         continue;
                     }
                     dataPoints.add(candidate);
@@ -90,7 +85,25 @@ public class AgentStatMapperV2<T extends AgentStatDataPoint> implements AgentSta
             }
         }
         // Reverse sort as timestamp is stored in a reversed order.
-        Collections.sort(dataPoints, REVERSE_TIMESTAMP_COMPARATOR);
+        dataPoints.sort(REVERSE_TIMESTAMP_COMPARATOR);
         return dataPoints;
     }
+
+    private boolean filter(T candidate) {
+        if (candidate instanceof AgentStatDataPointList) {
+            AgentStatDataPointList<AgentStatDataPoint> agentStatDataPointList = (AgentStatDataPointList) candidate;
+            List<AgentStatDataPoint> list = agentStatDataPointList.getList();
+            for (AgentStatDataPoint agentStatDataPoint : list) {
+                long timestamp = agentStatDataPoint.getTimestamp();
+                if (!this.filter.filter(timestamp)) {
+                    return false;
+                }
+            }
+            return true;
+        } else {
+            long timestamp = candidate.getTimestamp();
+            return this.filter.filter(timestamp);
+        }
+    }
+
 }

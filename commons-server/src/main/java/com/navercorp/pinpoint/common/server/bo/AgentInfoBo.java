@@ -18,6 +18,8 @@ package com.navercorp.pinpoint.common.server.bo;
 
 import com.navercorp.pinpoint.common.buffer.AutomaticBuffer;
 import com.navercorp.pinpoint.common.buffer.Buffer;
+import org.apache.commons.lang3.StringUtils;
+
 
 import java.util.Comparator;
 
@@ -27,18 +29,8 @@ import java.util.Comparator;
  */
 public class AgentInfoBo {
 
-    public static final Comparator<AgentInfoBo> AGENT_NAME_ASC_COMPARATOR = new Comparator<AgentInfoBo>() {
-        @Override
-        public int compare(AgentInfoBo that, AgentInfoBo other) {
-            final String thatAgentId = defaultString(that.agentId);
-            final String otherAgentId = defaultString(other.agentId);
-            return thatAgentId.compareTo(otherAgentId);
-        }
-
-        private String defaultString(String string) {
-            return string == null ? "" : string;
-        }
-    };
+    public static final Comparator<AgentInfoBo> AGENT_NAME_ASC_COMPARATOR
+            = Comparator.comparing(agentInfoBo -> StringUtils.defaultString(agentInfoBo.getAgentId()));
 
     private final String hostName;
     private final String ip;
@@ -54,6 +46,8 @@ public class AgentInfoBo {
 
     private final long endTimeStamp;
     private final int endStatus;
+
+    private final boolean container;
 
     // Should be serialized separately
     private final ServerMetaDataBo serverMetaData;
@@ -72,6 +66,7 @@ public class AgentInfoBo {
         this.startTime = builder.startTime;
         this.endTimeStamp = builder.endTimeStamp;
         this.endStatus = builder.endStatus;
+        this.container = builder.container;
         this.serverMetaData = builder.serverMetaData;
         this.jvmInfo = builder.jvmInfo;
     }
@@ -124,7 +119,11 @@ public class AgentInfoBo {
     public String getAgentVersion() {
         return agentVersion;
     }
-    
+
+    public boolean isContainer() {
+        return container;
+    }
+
     public ServerMetaDataBo getServerMetaData() {
         return this.serverMetaData;
     }
@@ -148,6 +147,8 @@ public class AgentInfoBo {
         buffer.putInt(this.getEndStatus());
         
         buffer.putPrefixedString(this.getVmVersion());
+
+        buffer.putBoolean(this.isContainer());
 
         return buffer.getBuffer();
     }
@@ -210,6 +211,8 @@ public class AgentInfoBo {
         private long startTime;
         private long endTimeStamp;
         private int endStatus;
+
+        private boolean container;
         
         // Should be serialized separately
         private ServerMetaDataBo serverMetaData;
@@ -268,6 +271,10 @@ public class AgentInfoBo {
 
         public void setEndStatus(int endStatus) {
             this.endStatus = endStatus;
+        }
+
+        public void isContainer(boolean container) {
+            this.container = container;
         }
         
         public void setServerMetaData(ServerMetaDataBo serverMetaData) {

@@ -3,9 +3,14 @@ package com.navercorp.pinpoint.profiler.instrument.mock;
 import java.util.Map;
 
 public class ArgsClass {
+    public ArgsClass() {
+    }
+
+    public ArgsClass(int a) {
+    }
+
 
     public void arg() {
-        System.out.println("arg");
     }
 
     public void argByteType(byte b) {

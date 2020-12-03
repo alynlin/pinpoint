@@ -81,7 +81,7 @@ public class Rule {
         return userGroupId;
     }
 
-    public void setuserGroupId(String userGroupId) {
+    public void setUserGroupId(String userGroupId) {
         this.userGroupId = userGroupId;
     }
 
@@ -115,5 +115,21 @@ public class Rule {
 
     public void setNotes(String notes) {
         this.notes = notes;
+    }
+
+    @Override
+    public String toString() {
+        final StringBuilder sb = new StringBuilder("Rule{");
+        sb.append("ruleId='").append(ruleId).append('\'');
+        sb.append(", applicationId='").append(applicationId).append('\'');
+        sb.append(", serviceType='").append(serviceType).append('\'');
+        sb.append(", checkerName='").append(checkerName).append('\'');
+        sb.append(", threshold=").append(threshold);
+        sb.append(", userGroupId='").append(userGroupId).append('\'');
+        sb.append(", smsSend=").append(smsSend);
+        sb.append(", emailSend=").append(emailSend);
+        sb.append(", notes='").append(notes).append('\'');
+        sb.append('}');
+        return sb.toString();
     }
 }

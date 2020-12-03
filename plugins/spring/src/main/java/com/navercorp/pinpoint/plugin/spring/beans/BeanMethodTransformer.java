@@ -1,11 +1,11 @@
-/**
+/*
  * Copyright 2014 NAVER Corp.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -28,6 +28,7 @@ import com.navercorp.pinpoint.bootstrap.instrument.MethodFilters;
 import com.navercorp.pinpoint.bootstrap.instrument.transformer.TransformCallback;
 import com.navercorp.pinpoint.bootstrap.logging.PLogger;
 import com.navercorp.pinpoint.bootstrap.logging.PLoggerFactory;
+import com.navercorp.pinpoint.plugin.spring.beans.interceptor.BeanMethodInterceptor;
 
 import static com.navercorp.pinpoint.common.util.VarArgs.va;
 
@@ -89,7 +90,7 @@ public class BeanMethodTransformer implements TransformCallback {
                 return;
             }
 
-            id = targetMethod.addInterceptor("com.navercorp.pinpoint.plugin.spring.beans.interceptor.BeanMethodInterceptor", va(markError));
+            id = targetMethod.addInterceptor(BeanMethodInterceptor.class, va(markError));
             interceptorId.set(id);
         }
     }

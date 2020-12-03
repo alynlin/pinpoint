@@ -1,11 +1,11 @@
 /*
- * Copyright 2014 NAVER Corp.
+ * Copyright 2019 NAVER Corp.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,59 +16,40 @@
 
 package com.navercorp.pinpoint.bootstrap.config;
 
+import com.navercorp.pinpoint.common.annotations.InterfaceAudience;
+import com.navercorp.pinpoint.common.annotations.VisibleForTesting;
+
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 /**
  * @author Woonduk Kang(emeroad)
  */
 public interface ProfilerConfig {
 
+    String getActiveProfile();
+
+//    String[] getOptionalProfiles();
+
     int getInterceptorRegistrySize();
 
-    String getCollectorSpanServerIp();
+    TransportModule getTransportModule();
 
-    int getCollectorSpanServerPort();
+    ThriftTransportConfig getThriftTransportConfig();
 
-    String getCollectorStatServerIp();
-
-    int getCollectorStatServerPort();
-
-    String getCollectorTcpServerIp();
-
-    int getCollectorTcpServerPort();
-
-    int getStatDataSenderWriteQueueSize();
-
-    int getStatDataSenderSocketSendBufferSize();
-
-    int getStatDataSenderSocketTimeout();
-
-    String getStatDataSenderSocketType();
-
-    int getSpanDataSenderWriteQueueSize();
-
-    int getSpanDataSenderSocketSendBufferSize();
-
-    boolean isTcpDataSenderCommandAcceptEnable();
-
-    boolean isTcpDataSenderCommandActiveThreadEnable();
-
-    boolean isTcpDataSenderCommandActiveThreadCountEnable();
-
-    boolean isTcpDataSenderCommandActiveThreadDumpEnable();
-
-    boolean isTcpDataSenderCommandActiveThreadLightDumpEnable();
+    List<String> getAllowJdkClassName();
 
     boolean isTraceAgentActiveThread();
 
-    int getSpanDataSenderSocketTimeout();
+    boolean isTraceAgentDataSource();
 
-    String getSpanDataSenderSocketType();
+    int getDataSourceTraceLimitSize();
 
-    int getSpanDataSenderChunkSize();
+    boolean isDeadlockMonitorEnable();
 
-    int getStatDataSenderChunkSize();
+    long getDeadlockMonitorInterval();
+
 
     boolean isProfileEnable();
 
@@ -82,22 +63,36 @@ public interface ProfilerConfig {
 
     int getSamplingRate();
 
+    int getSamplingNewThroughput();
+
+    int getSamplingContinueThroughput();
+
     boolean isIoBufferingEnable();
 
     int getIoBufferingBufferSize();
 
-    int getProfileJvmCollectInterval();
-
     String getProfilerJvmVendorName();
 
-    boolean isProfilerJvmCollectDetailedMetrics();
+    String getProfilerOSName();
+
+    int getProfileJvmStatCollectIntervalMs();
+
+    int getProfileJvmStatBatchSendCount();
+
+    boolean isProfilerJvmStatCollectDetailedMetrics();
 
     long getAgentInfoSendRetryInterval();
+
+    @InterfaceAudience.Private
+    @VisibleForTesting
+    boolean getStaticResourceCleanup();
 
 
     Filter<String> getProfilableClassFilter();
 
     List<String> getApplicationTypeDetectOrder();
+
+    List<String> getPluginLoadOrder();
 
     List<String> getDisabledPlugins();
 
@@ -109,7 +104,31 @@ public interface ProfilerConfig {
 
     String getProfileInstrumentEngine();
 
+    boolean isSupportLambdaExpressions();
+
+    boolean isInstrumentMatcherEnable();
+
+    InstrumentMatcherCacheConfig getInstrumentMatcherCacheConfig();
+
+    boolean isProxyHttpHeaderEnable();
+
+    HttpStatusCodeErrors getHttpStatusCodeErrors();
+
+    String getInjectionModuleFactoryClazzName();
+
+    String getApplicationNamespace();
+
+    boolean isCustomMetricEnable();
+
+    int getCustomMetricLimitSize();
+
+    boolean isUriStatEnable();
+
+    int getUriStatCollectInterval();
+
     String readString(String propertyName, String defaultValue);
+
+    String readString(String propertyName, String defaultValue, ValueResolver valueResolver);
 
     int readInt(String propertyName, int defaultValue);
 
@@ -122,5 +141,9 @@ public interface ProfilerConfig {
     boolean readBoolean(String propertyName, boolean defaultValue);
 
     Map<String, String> readPattern(String propertyNamePatternRegex);
+
+    interface ValueResolver {
+        String resolve(String value, Properties properties);
+    }
 
 }

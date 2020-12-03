@@ -18,11 +18,11 @@
 package com.navercorp.pinpoint.profiler.sender;
 
 /**
- * @Author Taejin Koo
+ * @author Taejin Koo
  */
 public enum UdpDataSenderType {
 
     OIO,
-    NIO;
+    NIO
 
 }

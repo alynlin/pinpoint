@@ -16,36 +16,38 @@
 
 package com.navercorp.pinpoint.web.alarm.checker;
 
-import java.util.LinkedList;
-import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.navercorp.pinpoint.web.alarm.collector.DataCollector;
 import com.navercorp.pinpoint.web.alarm.vo.Rule;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * @author koo.taejin
  * @author minwoo.jung
  */
-public abstract class AlarmChecker {
+public abstract class AlarmChecker<T> {
 
     protected final Logger logger = LoggerFactory.getLogger(this.getClass());
-    protected final DataCollector dataCollector;
+
     protected final Rule rule;
-    protected boolean detected = false;
     protected final String unit;
-    
+    protected final DataCollector dataCollector;
+
+    protected boolean detected = false;
+
     protected AlarmChecker(Rule rule, String unit, DataCollector dataCollector) {
-        this.rule = rule;
-        this.unit = unit;
+        this.rule = Objects.requireNonNull(rule, "rule");
+        this.unit = Objects.requireNonNull(unit, "unit");
         this.dataCollector = dataCollector;
     }
     
     public boolean isDetected() {
         return detected;
-        
     }
     
     public Rule getRule() {
@@ -60,17 +62,15 @@ public abstract class AlarmChecker {
         return rule.isEmailSend();
     }
     
-    public String getuserGroupId() {
+    public String getUserGroupId() {
         return rule.getUserGroupId();
     }
     
     public String getUnit() {
         return unit;
     }
-    
-    protected boolean decideResult(long value) {
-        return value >= rule.getThreshold();
-    }
+
+    protected abstract boolean decideResult(T value);
 
     public void check() {
         dataCollector.collect();
@@ -88,7 +88,6 @@ public abstract class AlarmChecker {
         return String.format("%s value is %s%s during the past 5 mins.(Threshold : %s%s)<br>", rule.getCheckerName(), getDetectedValue(), unit, rule.getThreshold(), unit);
     }
     
-    protected abstract long getDetectedValue();
+    protected abstract T getDetectedValue();
 
-    
 }

@@ -73,7 +73,7 @@ public class ArrayUtilsTest {
         byte[] bytes = new byte[]{1};
 
         String small = ArrayUtils.abbreviate(bytes, 1);
-        logger.info(small);
+        logger.debug(small);
         Assert.assertEquals("[1]", small);
     }
 
@@ -91,7 +91,7 @@ public class ArrayUtilsTest {
     @Test
     public void abbreviate() {
         //null test
-        Assert.assertTrue(ArrayUtils.abbreviate(null).equals("null"));
+        Assert.assertEquals("null", ArrayUtils.abbreviate(null));
         //zero-sized array test
         byte[] bytes_zero = new byte[0];
         Assert.assertEquals("[]", ArrayUtils.abbreviate(bytes_zero));

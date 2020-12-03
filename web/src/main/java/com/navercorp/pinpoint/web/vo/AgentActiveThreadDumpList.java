@@ -21,6 +21,7 @@ import com.navercorp.pinpoint.web.view.AgentActiveThreadDumpListSerializer;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -28,6 +29,8 @@ import java.util.List;
  */
 @JsonSerialize(using = AgentActiveThreadDumpListSerializer.class)
 public class AgentActiveThreadDumpList {
+
+    public static final AgentActiveThreadDumpList EMPTY_INSTANCE = new AgentActiveThreadDumpList(0);
 
     private final List<AgentActiveThreadDump> agentActiveThreadDumpRepository;
 
@@ -45,6 +48,12 @@ public class AgentActiveThreadDumpList {
 
     public List<AgentActiveThreadDump> getAgentActiveThreadDumpRepository() {
         return Collections.unmodifiableList(agentActiveThreadDumpRepository);
+    }
+
+    public List<AgentActiveThreadDump> getSortOldestAgentActiveThreadDumpRepository() {
+        List<AgentActiveThreadDump> copied = new ArrayList<>(agentActiveThreadDumpRepository);
+        copied.sort(Comparator.comparingLong(AgentActiveThreadDump::getStartTime));
+        return Collections.unmodifiableList(copied);
     }
 
 }

@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * @Author Taejin Koo
+ * @author Taejin Koo
  */
 @JsonSerialize(using = ApplicationAgentHostListSerializer.class)
 public class ApplicationAgentHostList {
@@ -62,15 +62,7 @@ public class ApplicationAgentHostList {
             return;
         }
 
-        List<AgentInfo> value = null;
-        if (map.containsKey(applicationName)) {
-            value = map.get(applicationName);
-        }
-
-        if (value == null) {
-            value = new ArrayList<>();
-            map.put(applicationName, value);
-        }
+        List<AgentInfo> value = map.computeIfAbsent(applicationName, k -> new ArrayList<>());
 
         if (agentInfoList == null) {
             return;

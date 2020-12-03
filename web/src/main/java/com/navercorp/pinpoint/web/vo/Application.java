@@ -20,6 +20,8 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.navercorp.pinpoint.common.trace.ServiceType;
 import com.navercorp.pinpoint.web.view.ApplicationSerializer;
 
+import java.util.Objects;
+
 /**
  * 
  * @author netspider
@@ -33,14 +35,8 @@ public final class Application {
     private final ServiceType serviceType;
 
     public Application(String name, ServiceType serviceType) {
-        if (name == null) {
-            throw new NullPointerException("name must not be null. serviceType=" + serviceType);
-        }
-        if (serviceType == null) {
-            throw new NullPointerException("serviceType must not be null. name=" + name);
-        }
-        this.name = name;
-        this.serviceType = serviceType;
+        this.name = Objects.requireNonNull(name, "name");
+        this.serviceType = Objects.requireNonNull(serviceType, "serviceType");
     }
 
 
@@ -57,16 +53,11 @@ public final class Application {
     }
 
     public boolean equals(String thatName, ServiceType thatServiceType) {
-        if (thatName == null) {
-            throw new NullPointerException("thatName must not be null");
-        }
-        if (thatServiceType == null) {
-            throw new NullPointerException("thatServiceType must not be null");
-        }
-        if (serviceType != thatServiceType) return false;
-        if (!name.equals(thatName)) return false;
+        Objects.requireNonNull(thatName, "thatName");
+        Objects.requireNonNull(thatServiceType, "thatServiceType");
 
-        return true;
+        if (!name.equals(thatName)) return false;
+        return serviceType.equals(thatServiceType);
     }
 
     @Override
@@ -76,10 +67,8 @@ public final class Application {
 
         Application that = (Application) o;
 
-        if (serviceType != that.serviceType) return false;
         if (!name.equals(that.name)) return false;
-
-        return true;
+        return serviceType.equals(that.serviceType);
     }
 
     @Override
